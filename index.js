@@ -30,7 +30,6 @@ async function run() {
     console.log("MongoDB connected successfully");
 
     const productsCollection = client.db("shopDb").collection("products");
-    const cartCollection = client.db("shopDb").collection("carts");
     const usersCollection = client.db("shopDb").collection("users");
     const cartsCollection = client.db("shopDb").collection("carts");
     const salesCollection = client.db("shopDb").collection("sales");
@@ -161,10 +160,26 @@ async function run() {
     });
 
     // ================= CARTS =================
-    app.get("/carts", async (req, res) => {
+    app.get("/carts", verifyToken, async (req, res) => {
       const email = req.query.email;
 
-      const result = await cartCollection.find({ email }).toArray();
+      if (!email) {
+        return res.status(400).send({ message: "Email required" });
+      }
+
+      const result = await cartsCollection.find({ email }).toArray();
+      res.send(result);
+    });
+
+    app.post("/carts", async (req, res) => {
+      const result = await cartsCollection.insertOne(req.body);
+      res.send(result);
+    });
+
+    app.delete("/carts/:id", async (req, res) => {
+      const result = await cartsCollection.deleteOne({
+        _id: new ObjectId(req.params.id),
+      });
       res.send(result);
     });
 
@@ -251,29 +266,7 @@ async function run() {
       res.send({ message: "Deleted successfully" });
     });
 
-    // ================= CART =================
-    app.get("/carts", async (req, res) => {
-      const email = req.query.email;
-
-      if (!email) {
-        return res.status(400).send({ message: "Email required" });
-      }
-
-      const result = await cartsCollection.find({ email }).toArray();
-      res.send(result);
-    });
-
-    app.post("/carts", async (req, res) => {
-      const result = await cartsCollection.insertOne(req.body);
-      res.send(result);
-    });
-
-    app.delete("/carts/:id", async (req, res) => {
-      const result = await cartsCollection.deleteOne({
-        _id: new ObjectId(req.params.id),
-      });
-      res.send(result);
-    });
+    // Profits=========================
 
     app.post("/profits", async (req, res) => {
       const result = await profitsCollection.insertOne({
@@ -290,18 +283,46 @@ async function run() {
       res.send(result);
     });
 
+    app.delete("/profits/:id", async (req, res) => {
+      const id = req.params.id;
+
+      const result = await profitsCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+
+      res.send(result);
+    });
+
     // ================= SALES =================
     app.post("/sell", async (req, res) => {
       try {
         const item = req.body;
 
+        const existing = await salesCollection.findOne({
+          productId: item._id
+        });
+
+        if (existing) {
+          return res.send({ message: "Already sold" });
+        }
+
+        const buyPrice = Number(item.buyPrice || 0);
+        const sellPrice = Number(item.sellPrice || 0);
+        const profit = sellPrice - buyPrice;
+
         await salesCollection.insertOne({
           ...item,
-          total: Number(item.sellPrice || 0),
-          profit:
-            Number(item.sellPrice || 0) -
-            Number(item.buyPrice || 0),
-          date: new Date(),
+          productId: item._id, // 🔥 important
+          total: sellPrice,
+          profit,
+          status: "sold",
+          createdAt: new Date()
+        });
+
+        await profitsCollection.insertOne({
+          title: item.name,
+          amount: profit,
+          createdAt: new Date()
         });
 
         await productsCollection.updateOne(
@@ -310,6 +331,7 @@ async function run() {
         );
 
         res.send({ success: true });
+
       } catch (err) {
         res.status(500).send({ message: "Sell failed" });
       }
@@ -318,6 +340,16 @@ async function run() {
     app.get("/sales", async (req, res) => {
       const result = await salesCollection.find().toArray();
       res.send(result);
+    });
+
+    app.delete("/sales/:id", async (req, res) => {
+      const id = req.params.id;
+
+      await salesCollection.deleteOne({
+        _id: new ObjectId(id)
+      });
+
+      res.send({ success: true });
     });
 
     // ================= STAFF =================
@@ -392,11 +424,14 @@ async function run() {
       const r = await receivablesCollection.find().toArray();
       const t = await transactionsCollection.find().toArray();
       const cash = await cashCollection.findOne();
+      const profits = await profitsCollection.find().toArray(); // ✅ ADD
 
       const totalStock = p.length;
       const totalSales = s.reduce((a, b) => a + (b.total || 0), 0);
       const totalExpense = e.reduce((a, b) => a + (b.amount || 0), 0);
       const totalReceivable = r.reduce((a, b) => a + (b.amount || 0), 0);
+
+      const totalProfit = profits.reduce((a, b) => a + (b.amount || 0), 0); // ✅ ADD
 
       const totalLoan = t
         .filter((i) => i.type === "loan")
@@ -412,7 +447,9 @@ async function run() {
         totalExpense,
         totalReceivable,
         cash: cash?.amount || 0,
-        profit: totalSales - totalExpense,
+
+        profit: totalProfit, // 🔥 NOW REAL PROFIT FROM COLLECTION
+
         takaPabo: totalReceivable,
         howladNise: totalLoan,
         howladDise: totalGiven,
