@@ -54,36 +54,49 @@ async function run() {
           return res.status(403).send({ message: "Forbidden" });
         }
 
-        req.decoded = decoded; // 🔥 IMPORTANT FIX
+        req.decoded = decoded;
         next();
       });
     };
 
-    // ============================
-    // 🔑 JWT
-    // ============================
-    app.post('/jwt', (req, res) => {
+    // =====================
+    // JWT ROUTE (ONLY ONE)
+    // =====================
+    app.post("/jwt", (req, res) => {
       const user = req.body;
 
+      if (!user?.email) {
+        return res.status(400).send({ message: "Email required" });
+      }
+
       const token = jwt.sign(
-        { email: user.email }, // only necessary data
+        { email: user.email },
         process.env.ACCESS_TOKEN_SECRET,
-        { expiresIn: '1h' }
+        { expiresIn: "1h" }
       );
 
       res.send({ token });
     });
+
     // use verify admin after verifyToken
     const verifyAdmin = async (req, res, next) => {
-      const email = req.decoded.email;
+      try {
+        const email = req.decoded?.email;
 
-      const user = await usersCollection.findOne({ email });
+        if (!email) {
+          return res.status(403).send({ message: "Forbidden" });
+        }
 
-      if (user?.role !== "admin") {
-        return res.status(403).send({ message: "forbidden access" });
+        const user = await usersCollection.findOne({ email });
+
+        if (user?.role !== "admin") {
+          return res.status(403).send({ message: "Forbidden access" });
+        }
+
+        next();
+      } catch (err) {
+        res.status(500).send({ message: "Server error" });
       }
-
-      next();
     };
 
     // ================= USERS =================
@@ -167,10 +180,6 @@ async function run() {
     app.get("/carts", verifyToken, async (req, res) => {
       const email = req.query.email;
 
-      if (!email) {
-        return res.status(400).send({ message: "Email required" });
-      }
-
       const result = await cartsCollection.find({ email }).toArray();
       res.send(result);
     });
@@ -182,62 +191,43 @@ async function run() {
 
     app.delete("/carts/:id", async (req, res) => {
       const result = await cartsCollection.deleteOne({
-        _id: new ObjectId(req.params.id),
+        _id: new ObjectId(req.params.id)
       });
+
       res.send(result);
     });
 
     // ================= PRODUCTS =================
     // ================= ADD PRODUCT =================
     app.post('/products', async (req, res) => {
-      try {
-        const p = req.body;
+      const p = req.body;
 
-        // ✅ VALIDATION
-        if (!p.name || !p.karat || !p.buyPrice) {
-          return res.status(400).send({ message: "Missing required fields" });
-        }
+      const product = {
+        name: p.name,
+        karat: p.karat,
+        image: p.image, // ✅ ADD THIS LINE
+        buyPrice: Number(p.buyPrice),
+        sellPrice: Number(p.sellPrice || 0),
+        stock: Number(p.stock || 0),
+        vori: Number(p.vori || 0),
+        ana: Number(p.ana || 0),
+        rati: Number(p.rati || 0),
+        point: Number(p.point || 0),
+        createdAt: new Date()
+      };
 
-        const newProduct = {
-          name: p.name,
-          karat: p.karat,
-          vori: Number(p.vori || 0),
-          ana: Number(p.ana || 0),
-          rati: Number(p.rati || 0),
-          point: Number(p.point || 0),
-          buyPrice: Number(p.buyPrice),
-          sellPrice: 0,
-
-          stock: 1, // 🔥 IMPORTANT (আগে ছিল না)
-          status: "stock",
-
-          image: p.image || "",
-          createdAt: p.createdAt || new Date()
-        };
-
-        const result = await productsCollection.insertOne(newProduct);
-
-        res.send({ success: true, result });
-
-      } catch (error) {
-        console.log("ADD PRODUCT ERROR:", error);
-        res.status(500).send({ message: "Server error" });
-      }
+      const result = await productsCollection.insertOne(product);
+      res.send(result);
     });
 
-
     // ================= GET ALL PRODUCTS =================
-    app.get('/products', async (req, res) => {
-      try {
-        const result = await productsCollection
-          .find()
-          .sort({ createdAt: -1 })
-          .toArray();
+    app.get("/products", async (req, res) => {
+      const result = await productsCollection
+        .find()
+        .sort({ createdAt: -1 })
+        .toArray();
 
-        res.send(result);
-      } catch (error) {
-        res.status(500).send({ message: "Server error" });
-      }
+      res.send(result);
     });
 
 
@@ -266,14 +256,24 @@ async function run() {
         const id = req.params.id;
 
         const updated = {
-          ...req.body,
+          name: req.body.name,
+          sellPrice: Number(req.body.sellPrice || 0),
+
           vori: Number(req.body.vori || 0),
           ana: Number(req.body.ana || 0),
           rati: Number(req.body.rati || 0),
           point: Number(req.body.point || 0),
-          buyPrice: Number(req.body.buyPrice || 0),
-          sellPrice: Number(req.body.sellPrice || 0)
+
+          stock: Number(req.body.stock || 0),
         };
+
+        // ✅ safe date handling
+        if (req.body.createdAt) {
+          const date = new Date(req.body.createdAt);
+          if (!isNaN(date)) {
+            updated.createdAt = date;
+          }
+        }
 
         const result = await productsCollection.updateOne(
           { _id: new ObjectId(id) },
@@ -283,6 +283,7 @@ async function run() {
         res.send(result);
 
       } catch (error) {
+        console.log(error);
         res.status(500).send({ message: "Update failed" });
       }
     });
@@ -295,11 +296,7 @@ async function run() {
           _id: new ObjectId(req.params.id)
         });
 
-        if (result.deletedCount === 0) {
-          return res.status(404).send({ message: "Product not found" });
-        }
-
-        res.send({ success: true });
+        res.send(result);
 
       } catch (error) {
         res.status(500).send({ message: "Delete failed" });
@@ -384,49 +381,60 @@ async function run() {
     });
 
     // ================= SALES =================
-    app.post("/sell", async (req, res) => {
+    // CREATE SALE
+    app.post("/sales", async (req, res) => {
       try {
-        const item = req.body;
+        const { productId, quantity, sellPrice } = req.body;
 
-        const qty = Number(item.quantity || 1);
+        const qty = Number(quantity);
+        const price = Number(sellPrice);
+
+        if (!productId) {
+          return res.status(400).send({ message: "productId required" });
+        }
+
+        if (!qty || qty < 1) {
+          return res.status(400).send({ message: "Invalid quantity" });
+        }
 
         const product = await productsCollection.findOne({
-          _id: new ObjectId(item._id)
+          _id: new ObjectId(productId)
         });
 
         if (!product) {
-          return res.status(404).send({ message: "Product not found" });
+          return res.status(400).send({ message: "Product not found" });
         }
 
-        if (product.stock < qty) {
+        if ((product.stock || 0) < qty) {
           return res.status(400).send({ message: "Not enough stock" });
         }
 
-        const buyPrice = Number(product.buyPrice);
-        const sellPrice = Number(item.sellPrice);
-        const profit = (sellPrice - buyPrice) * qty;
-
-        await salesCollection.insertOne({
-          ...item,
-          total: sellPrice * qty,
-          profit,
-          createdAt: new Date()
-        });
-
+        // stock কমানো
         await productsCollection.updateOne(
-          { _id: new ObjectId(item._id) },
-          {
-            $inc: { stock: -qty },
-            $set: {
-              status: product.stock - qty === 0 ? "sold" : "stock"
-            }
-          }
+          { _id: new ObjectId(productId) },
+          { $inc: { stock: -qty } }
         );
 
-        res.send({ success: true });
+        // ✅ FINAL SALE OBJECT
+        const sale = {
+          productId,
+          productName: product.name, // 🔥 ADD THIS (important)
+          quantity: qty,
+          sellPrice: price,
+          total: qty * price,
+          createdAt: new Date()
+        };
 
-      } catch (err) {
-        res.status(500).send({ message: "Sell failed" });
+        const result = await salesCollection.insertOne(sale);
+
+        res.send({
+          success: true,
+          insertedId: result.insertedId
+        });
+
+      } catch (error) {
+        console.log(error);
+        res.status(500).send({ message: "Server error" });
       }
     });
 
@@ -591,24 +599,58 @@ async function run() {
     });
 
     // ================= RECEIVABLE =================
+    // ➕ ADD
     app.post("/receivables", async (req, res) => {
-      const result = await receivablesCollection.insertOne(req.body);
-      res.send(result);
+      try {
+        const data = {
+          name: req.body.name,
+          amount: Number(req.body.amount),
+
+          // ✅ date fix
+          createdAt: req.body.date
+            ? new Date(req.body.date)
+            : new Date(),
+
+          updatedAt: null,
+        };
+
+        const result = await receivablesCollection.insertOne(data);
+
+        res.send({
+          success: true,
+          insertedId: result.insertedId,
+        });
+
+      } catch (err) {
+        res.status(500).send({ message: "Insert failed" });
+      }
     });
 
+    // 📥 GET
     app.get("/receivables", async (req, res) => {
-      const result = await receivablesCollection.find().toArray();
+      const result = await receivablesCollection
+        .find()
+        .sort({ createdAt: -1 }) // 🔥 latest first
+        .toArray();
+
       res.send(result);
     });
 
+    // ✏️ UPDATE (edit সহ date update)
     app.patch("/receivables/:id", async (req, res) => {
       try {
         const id = req.params.id;
 
         const updatedData = {
           name: req.body.name,
-          amount: Number(req.body.amount || 0),
-          updatedAt: new Date()
+          amount: Number(req.body.amount),
+
+          // ✅ edit করলে date update হবে
+          createdAt: req.body.date
+            ? new Date(req.body.date)
+            : undefined,
+
+          updatedAt: new Date(),
         };
 
         const result = await receivablesCollection.updateOne(
@@ -618,32 +660,22 @@ async function run() {
 
         res.send({
           success: true,
-          modifiedCount: result.modifiedCount
+
         });
 
       } catch (err) {
-        console.log(err);
+        console.error(err);
         res.status(500).send({ message: "Update failed" });
       }
     });
 
+    // 🗑 DELETE
     app.delete("/receivables/:id", async (req, res) => {
-      try {
-        const id = req.params.id;
+      const result = await receivablesCollection.deleteOne({
+        _id: new ObjectId(req.params.id),
+      });
 
-        const result = await receivablesCollection.deleteOne({
-          _id: new ObjectId(id),
-        });
-
-        if (result.deletedCount === 0) {
-          return res.status(404).send({ message: "Receivable not found" });
-        }
-
-        res.send({ success: true, message: "Deleted successfully" });
-
-      } catch (err) {
-        res.status(500).send({ message: "Server error" });
-      }
+      res.send({ success: true });
     });
 
 
@@ -678,43 +710,48 @@ async function run() {
 
     // ================= DASHBOARD =================
     app.get("/dashboard", async (req, res) => {
-      const p = await productsCollection.find().toArray();
-      const s = await salesCollection.find().toArray();
-      const e = await expensesCollection.find().toArray();
-      const r = await receivablesCollection.find().toArray();
-      const t = await transactionsCollection.find().toArray();
-      const cash = await cashCollection.findOne();
-      const profits = await profitsCollection.find().toArray(); // ✅ ADD
+      try {
+        const [p, s, e, r, t, cash, profits] = await Promise.all([
+          productsCollection.find().toArray(),
+          salesCollection.find().toArray(),
+          expensesCollection.find().toArray(),
+          receivablesCollection.find().toArray(),
+          transactionsCollection.find().toArray(),
+          cashCollection.findOne(),
+          profitsCollection.find().toArray(),
+        ]);
 
-      const totalStock = p.length;
-      const totalSales = s.reduce((a, b) => a + (b.total || 0), 0);
-      const totalExpense = e.reduce((a, b) => a + (b.amount || 0), 0);
-      const totalReceivable = r.reduce((a, b) => a + (b.amount || 0), 0);
+        const totalStock = p.length;
 
-      const totalProfit = profits.reduce((a, b) => a + (b.amount || 0), 0); // ✅ ADD
+        const totalSales = s.reduce((a, b) => a + Number(b.total || 0), 0);
+        const totalExpense = e.reduce((a, b) => a + Number(b.amount || 0), 0);
+        const totalReceivable = r.reduce((a, b) => a + Number(b.amount || 0), 0);
+        const totalProfit = profits.reduce((a, b) => a + Number(b.amount || 0), 0);
 
-      const totalLoan = t
-        .filter((i) => i.type === "loan")
-        .reduce((a, b) => a + (b.amount || 0), 0);
+        const totalLoan = t
+          .filter(i => i.type === "loan")
+          .reduce((a, b) => a + Number(b.amount || 0), 0);
 
-      const totalGiven = t
-        .filter((i) => i.type === "given")
-        .reduce((a, b) => a + (b.amount || 0), 0);
+        const totalGiven = t
+          .filter(i => i.type === "given")
+          .reduce((a, b) => a + Number(b.amount || 0), 0);
 
-      res.send({
-        totalStock,
-        totalSales,
-        totalExpense,
-        totalReceivable,
-        cash: cash?.amount || 0,
+        res.send({
+          totalStock,
+          totalSales,
+          totalExpense,
+          totalReceivable,
+          cash: cash?.amount || 0,
+          profit: totalProfit,
+          takaPabo: totalReceivable,
+          howladNise: totalLoan,
+          howladDise: totalGiven,
+          time: new Date(),
+        });
 
-        profit: totalProfit, // 🔥 NOW REAL PROFIT FROM COLLECTION
-
-        takaPabo: totalReceivable,
-        howladNise: totalLoan,
-        howladDise: totalGiven,
-        time: new Date(),
-      });
+      } catch (err) {
+        res.status(500).send({ message: "Dashboard error" });
+      }
     });
 
     app.get("/report/monthly", async (req, res) => {
