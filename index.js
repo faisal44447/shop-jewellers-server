@@ -1,20 +1,27 @@
 const express = require('express');
+const app = express();
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
-const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 require('dotenv').config();
 
-const app = express();
 const port = process.env.PORT || 5000;
 
 // middleware
-app.use(cors());
+// example
+app.use(cors({
+  origin: [
+    "http://localhost:5173",
+    "http://localhost:5000"
+  ],
+  credentials: true
+}));
 app.use(express.json());
 
-
+const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 // Mongo URI
 const uri = `mongodb://shopDb:${process.env.DB_PASS}@ac-kckblav-shard-00-00.rd6jhgv.mongodb.net:27017,ac-kckblav-shard-00-01.rd6jhgv.mongodb.net:27017,ac-kckblav-shard-00-02.rd6jhgv.mongodb.net:27017/shopDb?ssl=true&replicaSet=atlas-l06qfj-shard-0&authSource=admin&retryWrites=true&w=majority&appName=Cluster0`;
 
+// Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -23,11 +30,9 @@ const client = new MongoClient(uri, {
   }
 });
 
-
 async function run() {
   try {
     await client.connect();
-    console.log("MongoDB connected successfully");
 
     const productsCollection = client.db("shopDb").collection("products");
     const usersCollection = client.db("shopDb").collection("users");
@@ -386,67 +391,63 @@ async function run() {
       try {
         const { productId, quantity, sellPrice } = req.body;
 
-        const qty = Number(quantity);
-        const price = Number(sellPrice);
-
-        if (!productId) {
-          return res.status(400).send({ message: "productId required" });
-        }
-
-        if (!qty || qty < 1) {
-          return res.status(400).send({ message: "Invalid quantity" });
+        // ✅ validation
+        if (!productId || !quantity || !sellPrice) {
+          return res.status(400).send({ message: "Missing fields" });
         }
 
         const product = await productsCollection.findOne({
-          _id: new ObjectId(productId)
+          _id: new ObjectId(productId),
         });
 
         if (!product) {
-          return res.status(400).send({ message: "Product not found" });
+          return res.status(404).send({ message: "Product not found" });
         }
 
-        if ((product.stock || 0) < qty) {
-          return res.status(400).send({ message: "Not enough stock" });
-        }
+        const qty = Number(quantity);
+        const price = Number(sellPrice);
 
-        // stock কমানো
-        await productsCollection.updateOne(
-          { _id: new ObjectId(productId) },
-          { $inc: { stock: -qty } }
-        );
+        // ❌ stock check remove (as you said)
+        // if (product.stock < qty) {
+        //   return res.status(400).send({ message: "Not enough stock" });
+        // }
 
-        // ✅ FINAL SALE OBJECT
-        const sale = {
-          productId,
-          productName: product.name, // 🔥 ADD THIS (important)
+        const revenue = price * qty;
+        const cost = Number(product.buyPrice || 0) * qty;
+        const profit = revenue - cost;
+
+        const saleDoc = {
+          productId: product._id.toString(),
+          productName: product.name,
+          image: product.image || "",
           quantity: qty,
           sellPrice: price,
-          total: qty * price,
-          createdAt: new Date()
+          buyPrice: product.buyPrice || 0,
+          revenue,
+          cost,
+          profit,
+          createdAt: new Date(),
         };
 
-        const result = await salesCollection.insertOne(sale);
+        const result = await salesCollection.insertOne(saleDoc);
 
         res.send({
           success: true,
-          insertedId: result.insertedId
+          sale: saleDoc,
+          result,
         });
 
-      } catch (error) {
-        console.log(error);
-        res.status(500).send({ message: "Server error" });
+      } catch (err) {
+        console.log("SALE ERROR:", err);
+        res.status(500).send({ message: err.message });
       }
     });
 
     app.get("/sales", async (req, res) => {
-      try {
-        const result = await salesCollection.find().toArray();
-        res.send(result);
-      } catch (err) {
-        console.log("Sales Error:", err);
-        res.status(500).send({ message: "Failed to load sales" });
-      }
+      const result = await salesCollection.find().toArray();
+      res.send(result);
     });
+
 
     app.delete("/sales/:id", verifyToken, verifyAdmin, async (req, res) => {
       const id = req.params.id;
@@ -487,6 +488,27 @@ async function run() {
       } catch (err) {
         res.status(500).send({ message: "Analytics failed" });
       }
+    });
+
+    // ================= MONTHLY REPORT (FIXED) =================
+    app.get("/report/monthly", verifyToken, async (req, res) => {
+      const sales = await salesCollection.find().toArray();
+
+      const monthly = {};
+
+      sales.forEach((s) => {
+        const date = new Date(s.createdAt || new Date());
+        const key = `${date.getFullYear()}-${date.getMonth() + 1}`;
+
+        if (!monthly[key]) {
+          monthly[key] = { month: key, totalSales: 0, profit: 0 };
+        }
+
+        monthly[key].totalSales += s.revenue || 0;
+        monthly[key].profit += s.profit || 0;
+      });
+
+      res.send(Object.values(monthly));
     });
 
     // ================= STAFF =================
@@ -698,129 +720,116 @@ async function run() {
       const cash = await cashCollection.findOne();
       res.send(cash || { amount: 0 });
     });
-
-    // ===== InVoice =====
-    app.get("/invoice/:id", async (req, res) => {
-      const sale = await salesCollection.findOne({
-        _id: new ObjectId(req.params.id)
-      });
-
-      res.send(sale);
+    app.post("/cash", async (req, res) => {
+      const amount = Number(req.body.amount || 0);
+      const existing = await cashCollection.findOne();
+      if (existing) {
+        const result = await cashCollection.updateOne(
+          { _id: existing._id },
+          { $inc: { amount } }
+        );
+        res.send(result);
+      }
+      else {
+        const result = await cashCollection.insertOne({ amount });
+        res.send(result);
+      }
     });
 
     // ================= DASHBOARD =================
-    app.get("/dashboard", async (req, res) => {
+    app.get("/dashboard", verifyToken, async (req, res) => {
       try {
-        const [p, s, e, r, t, cash, profits] = await Promise.all([
-          productsCollection.find().toArray(),
-          salesCollection.find().toArray(),
-          expensesCollection.find().toArray(),
-          receivablesCollection.find().toArray(),
-          transactionsCollection.find().toArray(),
-          cashCollection.findOne(),
-          profitsCollection.find().toArray(),
-        ]);
+        const salesData = await salesCollection.find().toArray();
+        const expenses = await expensesCollection.find().toArray();
+        const staff = await staffCollection.find().toArray();
+        const receivables = await receivablesCollection.find().toArray();
+        const products = await productsCollection.find().toArray();
 
-        const totalStock = p.length;
+        // SALES
+        let totalSales = 0;
+        let totalProfit = 0;
+        let totalLoss = 0;
 
-        const totalSales = s.reduce((a, b) => a + Number(b.total || 0), 0);
-        const totalExpense = e.reduce((a, b) => a + Number(b.amount || 0), 0);
-        const totalReceivable = r.reduce((a, b) => a + Number(b.amount || 0), 0);
-        const totalProfit = profits.reduce((a, b) => a + Number(b.amount || 0), 0);
+        salesData.forEach((s) => {
+          const qty = Number(s.quantity || 1);
+          const sell = Number(s.sellPrice || 0);
+          const buy = Number(s.buyPrice || 0);
 
-        const totalLoan = t
-          .filter(i => i.type === "loan")
-          .reduce((a, b) => a + Number(b.amount || 0), 0);
+          const revenue = sell * qty;
+          const cost = buy * qty;
 
-        const totalGiven = t
-          .filter(i => i.type === "given")
-          .reduce((a, b) => a + Number(b.amount || 0), 0);
+          totalSales += revenue;
+
+          const profit = revenue - cost;
+
+          if (profit >= 0) totalProfit += profit;
+          else totalLoss += Math.abs(profit);
+        });
+
+        // EXPENSE
+        const totalExpense = expenses.reduce(
+          (sum, item) => sum + Number(item.amount || 0),
+          0
+        );
+
+        // STAFF
+        const totalStaffSalary = staff.reduce(
+          (sum, item) => sum + Number(item.salary || item.totalTaken || 0),
+          0
+        );
+
+        // RECEIVABLE
+        const totalReceivable = receivables.reduce(
+          (sum, item) => sum + Number(item.amount || 0),
+          0
+        );
+
+        // STOCK
+        const totalStock = products.reduce(
+          (sum, item) => sum + Number(item.stock || 0),
+          0
+        );
+
+        // CASH
+        const totalCash =
+          totalProfit -
+          totalLoss -
+          totalExpense -
+          totalStaffSalary -
+          totalReceivable;
 
         res.send({
-          totalStock,
           totalSales,
+          totalProfit,
+          totalLoss,
           totalExpense,
+          totalStaffSalary,
           totalReceivable,
-          cash: cash?.amount || 0,
-          profit: totalProfit,
-          takaPabo: totalReceivable,
-          howladNise: totalLoan,
-          howladDise: totalGiven,
-          time: new Date(),
+          totalStock,
+          totalCash,
         });
-
-      } catch (err) {
-        res.status(500).send({ message: "Dashboard error" });
-      }
-    });
-
-    app.get("/report/monthly", async (req, res) => {
-      try {
-        const sales = await salesCollection.find().toArray();
-        const expenses = await expensesCollection.find().toArray(); // ✅ FIX (আগে ভুল ছিল)
-
-        const months = {};
-
-        sales.forEach(s => {
-          const m = new Date(s.createdAt).getMonth(); // ✅ FIX
-          months[m] = months[m] || { month: m, sales: 0, expense: 0 };
-          months[m].sales += s.total || 0;
-        });
-
-        expenses.forEach(e => {
-          const m = new Date(e.createdAt).getMonth(); // ✅ FIX
-          months[m] = months[m] || { month: m, sales: 0, expense: 0 };
-          months[m].expense += e.amount || 0;
-        });
-
-        res.send(Object.values(months));
 
       } catch (error) {
-        console.log("Monthly Report Error:", error);
-        res.status(500).send({ message: "Monthly report failed" });
+        console.log("DASHBOARD ERROR:", error);
+        res.status(500).send({ message: "Dashboard data failed" });
       }
     });
 
-    app.get("/dashboard/summary", async (req, res) => {
-      try {
-        const sales = await salesCollection.find().toArray();
-        const expenses = await expensesCollection.find().toArray();
-        const staffs = await staffCollection.find().toArray();
-
-        const revenue = sales.reduce((sum, s) => sum + (Number(s.total) || 0), 0);
-
-        const expense = expenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-
-        const staffExpense = staffs.reduce((sum, s) => sum + (Number(s.monthlySalary) || 0), 0);
-
-        // 🔥 REAL PROFIT (no separate collection needed)
-        const profit = sales.reduce((sum, s) => sum + (Number(s.profit) || 0), 0);
-
-        res.send({
-          revenue,
-          expense: expense + staffExpense,
-          profit,
-          loss: profit < 0 ? Math.abs(profit) : 0,
-        });
-
-      } catch (err) {
-        res.status(500).send({ message: "Dashboard error" });
-      }
-    });
-
-    // health check
-    app.get('/', (req, res) => {
-      res.send('Server is running');
-    });
-
-  } catch (error) {
-    console.log("MongoDB connection error:", error);
+    // Send a ping to confirm a successful connection
+    // await client.db("admin").command({ ping: 1 });
+    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
+  } finally {
+    // Ensures that the client will close when you finish/error
+    // await client.close();
   }
 }
-
 run().catch(console.dir);
 
-// server start
+
+app.get('/', (req, res) => {
+  res.send('laivin is sitting')
+})
+
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
-});
+  console.log(`Laivin boss is sitting on port ${port}`);
+})
