@@ -788,6 +788,11 @@ async function run() {
 
 
     // ================= TRANSACTIONS =================
+    app.get("/transactions", async (req, res) => {
+      const result = await transactionsCollection.find().toArray();
+      res.send(result);
+    });
+
     app.post("/transactions", async (req, res) => {
       const result = await transactionsCollection.insertOne({
         ...req.body,
@@ -796,9 +801,16 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/transactions", async (req, res) => {
-      const result = await transactionsCollection.find().toArray();
-      res.send(result);
+    app.delete("/transactions/:id", async (req, res) => {
+      try {
+        const result = await transactionsCollection.deleteOne({
+          _id: new ObjectId(req.params.id),
+        });
+
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Delete failed" });
+      }
     });
 
     // ================= CASH =================
@@ -920,3 +932,4 @@ app.get('/', (req, res) => {
 app.listen(port, () => {
   console.log(`Laivin boss is sitting on port ${port}`);
 })
+
