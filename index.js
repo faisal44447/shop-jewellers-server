@@ -831,52 +831,53 @@ async function run() {
         const receivables = await receivablesCollection.find().toArray();
         const products = await productsCollection.find().toArray();
 
-        // SALES
+        const safe = (v) => Number(v || 0);
+
+        // ================= SALES =================
         let totalSales = 0;
         let totalProfit = 0;
         let totalLoss = 0;
 
         salesData.forEach((s) => {
-          const qty = Number(s.quantity || 1);
-          const sell = Number(s.sellPrice || 0);
-          const buy = Number(s.buyPrice || 0);
+          const qty = safe(s.quantity);
+          const sell = safe(s.sellPrice);
+          const buy = safe(s.buyPrice);
 
           const revenue = sell * qty;
           const cost = buy * qty;
+          const profit = revenue - cost;
 
           totalSales += revenue;
-
-          const profit = revenue - cost;
 
           if (profit >= 0) totalProfit += profit;
           else totalLoss += Math.abs(profit);
         });
 
-        // EXPENSE
+        // ================= EXPENSE =================
         const totalExpense = expenses.reduce(
-          (sum, item) => sum + Number(item.amount || 0),
+          (sum, item) => sum + safe(item.amount),
           0
         );
 
-        // STAFF
+        // ================= STAFF =================
         const totalStaffSalary = staff.reduce(
-          (sum, item) => sum + Number(item.salary || item.totalTaken || 0),
+          (sum, item) => sum + safe(item.salary || item.totalTaken),
           0
         );
 
-        // RECEIVABLE
+        // ================= RECEIVABLE =================
         const totalReceivable = receivables.reduce(
-          (sum, item) => sum + Number(item.amount || 0),
+          (sum, item) => sum + safe(item.amount),
           0
         );
 
-        // STOCK
+        // ================= STOCK =================
         const totalStock = products.reduce(
-          (sum, item) => sum + Number(item.stock || 0),
+          (sum, item) => sum + safe(item.stock),
           0
         );
 
-        // CASH
+        // ================= CASH =================
         const totalCash =
           totalProfit -
           totalLoss -
