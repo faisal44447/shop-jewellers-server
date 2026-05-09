@@ -2,19 +2,21 @@ const express = require('express');
 const app = express();
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
+const cron = require("node-cron");
 require('dotenv').config();
 
 const port = process.env.PORT || 5000;
 
 // middleware
-// example
+
 app.use(cors({
   origin: [
     "http://localhost:5173",
-    "http://localhost:5000"
+    "https://shop-jewellers-client.web.app"
   ],
   credentials: true
 }));
+
 app.use(express.json());
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -32,7 +34,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
 
     const productsCollection = client.db("shopDb").collection("products");
     const usersCollection = client.db("shopDb").collection("users");
@@ -44,6 +46,7 @@ async function run() {
     const cashCollection = client.db("shopDb").collection("cash");
     const staffCollection = client.db("shopDb").collection("staffs");
     const profitsCollection = client.db("shopDb").collection("profits");
+    const reportsCollection = client.db("shopDb").collection("reports");
 
     const verifyToken = (req, res, next) => {
       const authHeader = req.headers.authorization;
@@ -490,25 +493,76 @@ async function run() {
       }
     });
 
-    // ================= MONTHLY REPORT (FIXED) =================
+    app.post("/report/monthly/save", async (req, res) => {
+      try {
+        const sales = await salesCollection.find().toArray();
+        const expenses = await expensesCollection.find().toArray();
+
+        const monthly = {};
+
+        // ================= SALES =================
+        sales.forEach((s) => {
+          const date = new Date(s.createdAt);
+          const key = `${date.getFullYear()}-${date.getMonth() + 1}`;
+
+          if (!monthly[key]) {
+            monthly[key] = {
+              month: key,
+              revenue: 0,
+              expense: 0,
+            };
+          }
+
+          monthly[key].revenue += Number(s.revenue || 0);
+        });
+
+        // ================= EXPENSE =================
+        expenses.forEach((e) => {
+          const date = new Date(e.createdAt);
+          const key = `${date.getFullYear()}-${date.getMonth() + 1}`;
+
+          if (!monthly[key]) {
+            monthly[key] = {
+              month: key,
+              revenue: 0,
+              expense: 0,
+            };
+          }
+
+          monthly[key].expense += Number(e.amount || 0);
+        });
+
+        const finalData = Object.values(monthly);
+
+        // পুরাতন data remove করে নতুন save
+        await reportsCollection.deleteMany({});
+        await reportsCollection.insertMany(finalData);
+
+        res.send({
+          success: true,
+          message: "Monthly report saved",
+          data: finalData,
+        });
+
+      } catch (error) {
+        console.log(error);
+        res.status(500).send({ message: "Save failed" });
+      }
+    });
+
     app.get("/report/monthly", verifyToken, async (req, res) => {
-      const sales = await salesCollection.find().toArray();
+      try {
+        const result = await reportsCollection
+          .find()
+          .sort({ month: 1 })
+          .toArray();
 
-      const monthly = {};
+        res.send(result);
 
-      sales.forEach((s) => {
-        const date = new Date(s.createdAt || new Date());
-        const key = `${date.getFullYear()}-${date.getMonth() + 1}`;
-
-        if (!monthly[key]) {
-          monthly[key] = { month: key, totalSales: 0, profit: 0 };
-        }
-
-        monthly[key].totalSales += s.revenue || 0;
-        monthly[key].profit += s.profit || 0;
-      });
-
-      res.send(Object.values(monthly));
+      } catch (error) {
+        console.log(error);
+        res.status(500).send({ message: "Monthly report failed" });
+      }
     });
 
     // ================= STAFF =================
@@ -616,7 +670,39 @@ async function run() {
     });
 
     app.get("/expenses", async (req, res) => {
-      const result = await expensesCollection.find().toArray();
+      const result = await expensesCollection
+        .find()
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.send(result);
+    });
+
+    app.patch("/expenses/:id", async (req, res) => {
+      const id = req.params.id;
+
+      const updateDoc = {
+        $set: {
+          title: req.body.title,
+          amount: Number(req.body.amount),
+        },
+      };
+
+      const result = await expensesCollection.updateOne(
+        { _id: new ObjectId(id) },
+        updateDoc
+      );
+
+      res.send(result);
+    });
+
+    app.delete("/expenses/:id", async (req, res) => {
+      const id = req.params.id;
+
+      const result = await expensesCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+
       res.send(result);
     });
 

@@ -7,6 +7,7 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
     "mongodb": "^7.1.1",
+    "node-cron": "^4.2.1",
     "socket.io": "^4.8.3",
     "stripe": "^22.0.1"
   },
@@ -27,5 +28,13 @@
     "nodemon": "^3.1.14",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.3"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/faisal44447/shop-jewellers-server.git"
+  },
+  "bugs": {
+    "url": "https://github.com/faisal44447/shop-jewellers-server/issues"
+  },
+  "homepage": "https://github.com/faisal44447/shop-jewellers-server#readme"
 }
