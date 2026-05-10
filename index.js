@@ -12,7 +12,7 @@ const port = process.env.PORT || 5000;
 app.use(cors({
   origin: [
     "http://localhost:5173",
-    "https://shop-jewellers-client.web.app"
+    "http://localhost:5000"
   ],
   credentials: true
 }));
@@ -47,6 +47,7 @@ async function run() {
     const staffCollection = client.db("shopDb").collection("staffs");
     const profitsCollection = client.db("shopDb").collection("profits");
     const reportsCollection = client.db("shopDb").collection("reports");
+    const cashListCollection = client.db("shopDb").collection("cashList");
 
     const verifyToken = (req, res, next) => {
       const authHeader = req.headers.authorization;
@@ -813,28 +814,79 @@ async function run() {
       }
     });
 
-    // ================= CASH =================
-    app.get("/cash", async (req, res) => {
-      const cash = await cashCollection.findOne();
-      res.send(cash || { amount: 0 });
-    });
-    app.post("/cash", async (req, res) => {
-      const amount = Number(req.body.amount || 0);
-      const existing = await cashCollection.findOne();
-      if (existing) {
-        const result = await cashCollection.updateOne(
-          { _id: existing._id },
-          { $inc: { amount } }
-        );
+    // ================= CASH LIST =================
+
+    // ADD CASH
+    app.post("/cash-list", async (req, res) => {
+      try {
+        const now = new Date();
+
+        const data = {
+          title: req.body.title,
+          amount: Number(req.body.amount),
+
+          createdAt: now,
+
+          // readable UI format
+          date: now.toLocaleDateString("en-GB"),
+          time: now.toLocaleTimeString("en-GB"),
+        };
+
+        const result = await cashListCollection.insertOne(data);
         res.send(result);
-      }
-      else {
-        const result = await cashCollection.insertOne({ amount });
-        res.send(result);
+
+      } catch (error) {
+        res.status(500).send({ message: "Cash add failed" });
       }
     });
 
-    // ================= DASHBOARD =================
+    // GET CASH LIST
+    app.get("/cash-list", async (req, res) => {
+      const result = await cashListCollection
+        .find()
+        .sort({ createdAt: -1 })
+        .toArray();
+
+      res.send(result);
+    });
+
+    // UPDATE CASH
+    app.patch("/cash-list/:id", async (req, res) => {
+      const id = req.params.id;
+
+      const result = await cashListCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            title: req.body.title,
+            amount: Number(req.body.amount),
+          },
+        }
+      );
+
+      res.send(result);
+    });
+
+    // DELETE CASH
+    app.delete("/cash-list/:id", async (req, res) => {
+      const result = await cashListCollection.deleteOne({
+        _id: new ObjectId(req.params.id),
+      });
+
+      res.send(result);
+    });
+
+    // ================= CASH TOTAL (ONLY ONE SOURCE) =================
+    app.get("/cash-total", async (req, res) => {
+      const cash = await cashListCollection.find().toArray();
+
+      const total = cash.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+
+      res.send({ total });
+    });
+
+
+    // ================= DASHBOARD (FIXED NO DUPLICATE CASH LOGIC) =================
     app.get("/dashboard", verifyToken, async (req, res) => {
       try {
         const salesData = await salesCollection.find().toArray();
@@ -842,10 +894,11 @@ async function run() {
         const staff = await staffCollection.find().toArray();
         const receivables = await receivablesCollection.find().toArray();
         const products = await productsCollection.find().toArray();
+        const cashList = await cashListCollection.find().toArray();
 
         const safe = (v) => Number(v || 0);
 
-        // ================= SALES =================
+        // SALES
         let totalSales = 0;
         let totalProfit = 0;
         let totalLoss = 0;
@@ -865,37 +918,49 @@ async function run() {
           else totalLoss += Math.abs(profit);
         });
 
-        // ================= EXPENSE =================
+        // EXPENSE
         const totalExpense = expenses.reduce(
           (sum, item) => sum + safe(item.amount),
           0
         );
 
-        // ================= STAFF =================
+        // STAFF
         const totalStaffSalary = staff.reduce(
           (sum, item) => sum + safe(item.salary || item.totalTaken),
           0
         );
 
-        // ================= RECEIVABLE =================
+        // RECEIVABLE
         const totalReceivable = receivables.reduce(
           (sum, item) => sum + safe(item.amount),
           0
         );
 
-        // ================= STOCK =================
+        // STOCK
         const totalStock = products.reduce(
           (sum, item) => sum + safe(item.stock),
           0
         );
 
-        // ================= CASH =================
+        // STOCK VALUE
+        const totalStockValue = products.reduce((sum, item) => {
+          return sum + safe(item.stock) * safe(item.buyPrice);
+        }, 0);
+
+        // CASH (ONLY FROM COLLECTION)
+        const totalCashFromList = cashList.reduce(
+          (sum, item) => sum + Number(item.amount || 0),
+          0
+        );
+
+        // FINAL CASH
         const totalCash =
           totalProfit -
           totalLoss -
           totalExpense -
           totalStaffSalary -
-          totalReceivable;
+          totalReceivable +
+          totalCashFromList;
 
         res.send({
           totalSales,
@@ -905,12 +970,12 @@ async function run() {
           totalStaffSalary,
           totalReceivable,
           totalStock,
+          totalStockValue,
           totalCash,
         });
-
       } catch (error) {
-        console.log("DASHBOARD ERROR:", error);
-        res.status(500).send({ message: "Dashboard data failed" });
+        console.log(error);
+        res.status(500).send({ message: "Dashboard failed" });
       }
     });
 
