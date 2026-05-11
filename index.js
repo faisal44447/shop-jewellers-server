@@ -12,7 +12,7 @@ const port = process.env.PORT || 5000;
 app.use(cors({
   origin: [
     "http://localhost:5173",
-    "http://localhost:5000"
+    "https://shop-jewellers-client.web.app"
   ],
   credentials: true
 }));
