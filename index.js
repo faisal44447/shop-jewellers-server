@@ -20,7 +20,7 @@ app.use(cors({
 app.use(express.json());
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-// Mongo URI
+
 const uri = `mongodb://shopDb:${process.env.DB_PASS}@ac-kckblav-shard-00-00.rd6jhgv.mongodb.net:27017,ac-kckblav-shard-00-01.rd6jhgv.mongodb.net:27017,ac-kckblav-shard-00-02.rd6jhgv.mongodb.net:27017/shopDb?ssl=true&replicaSet=atlas-l06qfj-shard-0&authSource=admin&retryWrites=true&w=majority&appName=Cluster0`;
 
 // Create a MongoClient with a MongoClientOptions object to set the Stable API version
@@ -887,6 +887,7 @@ async function run() {
 
 
     // ================= DASHBOARD (FIXED NO DUPLICATE CASH LOGIC) =================
+    // ================= DASHBOARD =================
     app.get("/dashboard", verifyToken, async (req, res) => {
       try {
         const salesData = await salesCollection.find().toArray();
@@ -895,10 +896,11 @@ async function run() {
         const receivables = await receivablesCollection.find().toArray();
         const products = await productsCollection.find().toArray();
         const cashList = await cashListCollection.find().toArray();
+        const transactions = await transactionCollection.find().toArray();
 
         const safe = (v) => Number(v || 0);
 
-        // SALES
+        // ================= SALES =================
         let totalSales = 0;
         let totalProfit = 0;
         let totalLoss = 0;
@@ -914,54 +916,75 @@ async function run() {
 
           totalSales += revenue;
 
-          if (profit >= 0) totalProfit += profit;
-          else totalLoss += Math.abs(profit);
+          if (profit >= 0) {
+            totalProfit += profit;
+          } else {
+            totalLoss += Math.abs(profit);
+          }
         });
 
-        // EXPENSE
+        // ================= EXPENSE =================
         const totalExpense = expenses.reduce(
           (sum, item) => sum + safe(item.amount),
           0
         );
 
-        // STAFF
+        // ================= STAFF =================
         const totalStaffSalary = staff.reduce(
           (sum, item) => sum + safe(item.salary || item.totalTaken),
           0
         );
 
-        // RECEIVABLE
+        // ================= RECEIVABLE =================
         const totalReceivable = receivables.reduce(
           (sum, item) => sum + safe(item.amount),
           0
         );
 
-        // STOCK
+        // ================= STOCK =================
         const totalStock = products.reduce(
           (sum, item) => sum + safe(item.stock),
           0
         );
 
-        // STOCK VALUE
+        // ================= STOCK VALUE =================
         const totalStockValue = products.reduce((sum, item) => {
           return sum + safe(item.stock) * safe(item.buyPrice);
         }, 0);
 
-        // CASH (ONLY FROM COLLECTION)
+        // ================= CASH LIST =================
         const totalCashFromList = cashList.reduce(
-          (sum, item) => sum + Number(item.amount || 0),
+          (sum, item) => sum + safe(item.amount),
           0
         );
 
-        // FINAL CASH
-        const totalCash =
-          totalProfit -
-          totalLoss -
-          totalExpense -
-          totalStaffSalary -
-          totalReceivable +
-          totalCashFromList;
+        // ================= TRANSACTIONS =================
+        let totalTransactionPlus = 0;
+        let totalTransactionMinus = 0;
 
+        transactions.forEach((t) => {
+          const amount = safe(t.amount);
+
+          if (t.type === "plus") {
+            totalTransactionPlus += amount;
+          } else {
+            totalTransactionMinus += amount;
+          }
+        });
+
+        // ================= FINAL CASH =================
+        const totalCash =
+          totalSales +
+          totalProfit +
+          totalStockValue +
+          totalCashFromList +
+          totalTransactionPlus -
+          totalExpense -
+          totalReceivable -
+          totalStaffSalary -
+          totalTransactionMinus;
+
+        // ================= RESPONSE =================
         res.send({
           totalSales,
           totalProfit,
@@ -972,13 +995,18 @@ async function run() {
           totalStock,
           totalStockValue,
           totalCash,
+          totalCashFromList,
+          totalTransactionPlus,
+          totalTransactionMinus,
         });
       } catch (error) {
         console.log(error);
-        res.status(500).send({ message: "Dashboard failed" });
+        res.status(500).send({
+          message: "Dashboard failed",
+        });
       }
     });
-
+    
     // Send a ping to confirm a successful connection
     // await client.db("admin").command({ ping: 1 });
     // console.log("Pinged your deployment. You successfully connected to MongoDB!");
