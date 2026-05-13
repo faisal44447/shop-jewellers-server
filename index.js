@@ -12,7 +12,7 @@ const port = process.env.PORT || 5000;
 app.use(cors({
   origin: [
     "http://localhost:5173",
-    "https://shop-jewellers-client.web.app"
+    "https://shop-jewellers-server.vercel.app",
   ],
   credentials: true
 }));
@@ -790,8 +790,9 @@ async function run() {
 
     // ================= TRANSACTIONS =================
     app.get("/transactions", async (req, res) => {
-      const result = await transactionsCollection.find().toArray();
-      res.send(result);
+      const transactions = await transactionsCollection.find().toArray();
+
+      res.send(transactions);
     });
 
     app.post("/transactions", async (req, res) => {
@@ -799,6 +800,7 @@ async function run() {
         ...req.body,
         createdAt: new Date(),
       });
+
       res.send(result);
     });
 
@@ -809,8 +811,11 @@ async function run() {
         });
 
         res.send(result);
+
       } catch (error) {
-        res.status(500).send({ message: "Delete failed" });
+        res.status(500).send({
+          message: "Delete failed",
+        });
       }
     });
 
@@ -1006,7 +1011,7 @@ async function run() {
         });
       }
     });
-    
+
     // Send a ping to confirm a successful connection
     // await client.db("admin").command({ ping: 1 });
     // console.log("Pinged your deployment. You successfully connected to MongoDB!");
