@@ -48,7 +48,6 @@ async function connectDB() {
   return db;
 }
 
-// প্রতিটি রিকোয়েস্টের আগে ডেটাবেজ কানেকশন ও কালেকশন নিশ্চিত করার মিডলওয়্যার
 app.use(async (req, res, next) => {
   try {
     const database = await connectDB();
