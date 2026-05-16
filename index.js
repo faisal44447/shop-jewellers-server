@@ -346,57 +346,115 @@ app.delete("/profits/:id", async (req, res) => {
   res.send({ success: result.deletedCount > 0 });
 });
 
-// ================= STAFF API =================
+/// ================= STAFF API =================
+
+// 1. Create New Staff
 app.post("/staffs", async (req, res) => {
   const { staffCollection } = req.collections;
-  res.send(await staffCollection.insertOne(req.body));
+  try {
+    // Body theke safety check er jonno _id thakle delete kore deya bhalo
+    const staffData = { ...req.body };
+    delete staffData._id;
+
+    const result = await staffCollection.insertOne(staffData);
+    res.status(201).send(result);
+  } catch (error) {
+    res.status(500).send({ success: false, message: error.message });
+  }
 });
 
+// 2. Get All Staffs
 app.get("/staffs", async (req, res) => {
   const { staffCollection } = req.collections;
-  res.send(await staffCollection.find().toArray());
+  try {
+    const result = await staffCollection.find().toArray();
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ success: false, message: error.message });
+  }
 });
 
+// 3. Get Single Staff by ID
 app.get("/staffs/:id", async (req, res) => {
   const { staffCollection } = req.collections;
   try {
     const id = req.params.id;
-    if (!ObjectId.isValid(id)) return res.status(400).send({ success: false, message: "Invalid staff ID" });
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ success: false, message: "Invalid staff ID format" });
+    }
 
     const staff = await staffCollection.findOne({ _id: new ObjectId(id) });
-    if (!staff) return res.status(404).send({ success: false, message: "Staff not found" });
+    if (!staff) {
+      return res.status(404).send({ success: false, message: "Staff not found" });
+    }
     res.send(staff);
   } catch (error) {
     res.status(500).send({ success: false, message: error.message });
   }
 });
 
+// 4. Update Staff (PUT - Full Data Sync)
 app.put("/staffs/:id", async (req, res) => {
   const { staffCollection } = req.collections;
   try {
     const id = req.params.id;
-    if (!ObjectId.isValid(id)) return res.status(400).send({ message: "Invalid ID" });
-    if (!req.body.name || req.body.monthlySalary == null) {
-      return res.status(400).send({ message: "Missing required fields" });
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ success: false, message: "Invalid ID format" });
     }
-    res.send(await staffCollection.updateOne({ _id: new ObjectId(id) }, { $set: req.body }));
+
+    if (!req.body.name || req.body.monthlySalary == null) {
+      return res.status(400).send({ success: false, message: "Missing required fields (name or monthlySalary)" });
+    }
+
+    // CRITICAL FIX: Destructure kore payload separation, jate backend-e _id overwrite crash na khay
+    const { _id, ...updateData } = req.body;
+
+    const result = await staffCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: updateData }
+    );
+
+    res.send(result);
   } catch (error) {
-    res.status(500).send({ message: error.message });
+    res.status(500).send({ success: false, message: error.message });
   }
 });
 
+// 5. Partial Update Staff (PATCH)
 app.patch("/staffs/:id", async (req, res) => {
   const { staffCollection } = req.collections;
   try {
-    res.send(await staffCollection.updateOne({ _id: new ObjectId(req.params.id) }, { $set: req.body }));
+    const id = req.params.id;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ success: false, message: "Invalid ID format" });
+    }
+
+    const { _id, ...patchData } = req.body;
+
+    const result = await staffCollection.updateOne(
+      { _id: new ObjectId(id) },
+      { $set: patchData }
+    );
+    res.send(result);
   } catch (error) {
-    res.status(500).send({ message: error.message });
+    res.status(500).send({ success: false, message: error.message });
   }
 });
 
+// 6. Delete Staff
 app.delete("/staffs/:id", async (req, res) => {
   const { staffCollection } = req.collections;
-  res.send(await staffCollection.deleteOne({ _id: new ObjectId(req.params.id) }));
+  try {
+    const id = req.params.id;
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).send({ success: false, message: "Invalid ID format" });
+    }
+
+    const result = await staffCollection.deleteOne({ _id: new ObjectId(id) });
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ success: false, message: error.message });
+  }
 });
 
 // ================= EXPENSES API =================
@@ -670,14 +728,14 @@ app.get("/dashboard", verifyToken, async (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.send("🚀 AL AMIN JEWELLERS SERVER IS READY FOR VERCEL");
+  res.send(" AL AMIN JEWELLERS SERVER IS READY FOR VERCEL");
 });
 
 // ================= LOCALHOST TRICK =================
 if (process.env.NODE_ENV !== "production") {
   const port = process.env.PORT || 5000;
   app.listen(port, () => {
-    console.log(`💎 Local Server running on port ${port}`);
+    console.log(` Local Server running on port ${port}`);
   });
 }
 
