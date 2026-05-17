@@ -155,7 +155,8 @@ app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
 
 // কোনো ইউজার অ্যাডমিন কিনা তা চেক করার রুট (useAdmin হুক এখান থেকে ডেটা নেয়)
 app.get("/users/admin/:email", verifyToken, async (req, res) => {
-  const { usersCollection } = req.collections; // 🔥 ফিক্সড: কালেকশন মিসিং ছিল
+  const { usersCollection } = req.collections;
+
   const email = req.params.email;
 
   if (email !== req.decoded.email) {
@@ -166,9 +167,11 @@ app.get("/users/admin/:email", verifyToken, async (req, res) => {
   const user = await usersCollection.findOne(query);
 
   let admin = false;
+
   if (user) {
     admin = user.role === "admin";
   }
+
   res.send({ admin });
 });
 
