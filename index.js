@@ -192,7 +192,7 @@ app.delete('/users/:id', verifyToken, verifyAdmin, async (req, res) => {
 app.get("/carts", verifyToken, async (req, res) => {
   const { cartsCollection } = req.collections;
   const email = req.query.email;
-  if (email !== req.decoded.email) {
+  if (email !== req.decoded.email){
     return res.status(403).send({ message: "forbidden access" });
   }
   res.send(await cartsCollection.find({ email }).toArray());
