@@ -71,38 +71,71 @@ app.use(async (req, res, next) => {
   }
 });
 
-// ================= VERIFICATION MIDDLEWARES =================
+// ================= VERIFY TOKEN =================
 const verifyToken = (req, res, next) => {
-  const auth = req.headers.authorization;
-  if (!auth) return res.status(401).send({ message: "Unauthorized access" });
 
-  const token = auth.split(" ")[1];
-  jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-    if (err) return res.status(403).send({ message: "Forbidden access" });
-    req.decoded = decoded;
-    next();
-  });
+  const authHeader = req.headers.authorization;
+
+  if (!authHeader) {
+    return res.status(401).send({
+      message: "Unauthorized access",
+    });
+  }
+
+  const token = authHeader.split(" ")[1];
+
+  jwt.verify(
+    token,
+    process.env.ACCESS_TOKEN_SECRET,
+    (err, decoded) => {
+
+      if (err) {
+        return res.status(403).send({
+          message: "Forbidden access",
+        });
+      }
+
+      req.decoded = decoded;
+      next();
+    }
+  );
 };
 
+// ================= VERIFY ADMIN =================
 const verifyAdmin = async (req, res, next) => {
+
   const { usersCollection } = req.collections;
-  const user = await usersCollection.findOne({ email: req.decoded?.email });
-  if (user?.role !== "admin") {
-    return res.status(403).send({ message: "Forbidden access" });
+
+  const user = await usersCollection.findOne({
+    email: req.decoded.email,
+  });
+
+  if (!user || user.role !== "admin") {
+    return res.status(403).send({
+      message: "Forbidden access",
+    });
   }
+
   next();
 };
 
 // ================= JWT AUTHENTICATION =================
 app.post("/jwt", (req, res) => {
+
   const user = req.body;
-  if (!user?.email) return res.status(400).send({ message: "Email required" });
+
+  if (!user?.email) {
+    return res.status(400).send({
+      message: "Email required",
+    });
+  }
 
   const token = jwt.sign(
     { email: user.email },
     process.env.ACCESS_TOKEN_SECRET,
     { expiresIn: "7d" }
   );
+
   res.send({ token });
 });
 
