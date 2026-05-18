@@ -4,6 +4,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const rateLimit = require("express-rate-limit");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+
 const app = express();
 
 // ================= MIDDLEWARE =================
@@ -16,9 +17,8 @@ app.use(cors({
   credentials: true
 }));
 app.use(express.json());
-
 app.use(rateLimit({
-  windowMs: 15 * 60 * 1000,
+  windowMs: 15 * 60 * 1000, // 15 minutes
   max: 500
 }));
 
@@ -29,43 +29,46 @@ const safe = (v) => (isNaN(Number(v)) ? 0 : Number(v));
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.rd6jhgv.mongodb.net/?appName=Cluster0`;
 let client;
 let db;
+let collections = {}; // গ্লোবাল অবজেক্ট হিসেবে কালেকশনগুলো রাখার জন্য
 
 async function connectDB() {
-  if (db) return db;
-  client = new MongoClient(uri, {
-    serverApi: {
-      version: ServerApiVersion.v1,
-      strict: true,
-      deprecationErrors: true,
-    },
-  });
-  await client.connect();
-  db = client.db("shopDb");
-  console.log("💎 MongoDB Connected successfully!");
-  return db;
+  if (db) return collections;
+  try {
+    client = new MongoClient(uri, {
+      serverApi: {
+        version: ServerApiVersion.v1,
+        strict: true,
+        deprecationErrors: true,
+      },
+    });
+    await client.connect();
+    db = client.db("shopDb");
+
+    // কালেকশনগুলো একবারেই এখানে ডিক্লেয়ার করা হলো
+    collections.productsCollection = db.collection("products");
+    collections.usersCollection = db.collection("users");
+    collections.cartsCollection = db.collection("carts");
+    collections.salesCollection = db.collection("sales");
+    collections.expensesCollection = db.collection("expenses");
+    collections.receivablesCollection = db.collection("receivables");
+    collections.transactionsCollection = db.collection("transactions");
+    collections.cashListCollection = db.collection("cashs");
+    collections.staffCollection = db.collection("staffs");
+    collections.profitsCollection = db.collection("profits");
+    collections.reportsCollection = db.collection("reports");
+
+    console.log("💎 MongoDB Connected successfully!");
+    return collections;
+  } catch (error) {
+    console.error("DB Initial Connection Error:", error);
+    process.exit(1); // কানেকশন না হলে সার্ভার বন্ধ করে দেবে
+  }
 }
 
-app.use(async (req, res, next) => {
-  try {
-    const database = await connectDB();
-    req.collections = {
-      productsCollection: database.collection("products"),
-      usersCollection: database.collection("users"),
-      cartsCollection: database.collection("carts"),
-      salesCollection: database.collection("sales"),
-      expensesCollection: database.collection("expenses"),
-      receivablesCollection: database.collection("receivables"),
-      transactionsCollection: database.collection("transactions"),
-      cashListCollection: database.collection("cashs"),
-      staffCollection: database.collection("staffs"),
-      profitsCollection: database.collection("profits"),
-      reportsCollection: database.collection("reports")
-    };
-    next();
-  } catch (error) {
-    console.error("DB Connection Error:", error);
-    res.status(500).send({ message: "Database connection failed" });
-  }
+// প্রতি রিকোয়েস্টে কালেকশনগুলো রিকোয়েস্ট অবজেক্টে পাস করার মিডলওয়্যার
+app.use((req, res, next) => {
+  req.collections = collections;
+  next();
 });
 
 // ================= VERIFY TOKEN =================
@@ -105,6 +108,11 @@ app.post("/jwt", async (req, res) => {
   try {
     const user = req.body;
     if (!user?.email) return res.status(400).send({ message: "Email required" });
+
+    // সিকিউরিটি ফিক্স: টোকেন দেওয়ার আগে ইউজার আসলেই ডাটাবেজে আছে কিনা তা চেক করা ভালো
+    const exist = await req.collections.usersCollection.findOne({ email: user.email });
+    if (!exist) return res.status(404).send({ message: "User not found" });
+
     const token = jwt.sign({ email: user.email }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: "7d" });
     res.send({ token });
   } catch (error) {
@@ -189,6 +197,7 @@ app.patch('/products/:id', verifyToken, verifyAdmin, async (req, res) => {
   try {
     const existingProduct = await req.collections.productsCollection.findOne({ _id: new ObjectId(req.params.id) });
     if (!existingProduct) return res.status(404).send({ success: false, message: "Product not found" });
+
     const updated = {
       name: req.body.name || existingProduct.name,
       karat: req.body.karat || existingProduct.karat,
@@ -202,6 +211,7 @@ app.patch('/products/:id', verifyToken, verifyAdmin, async (req, res) => {
       stock: req.body.stock !== undefined ? safe(req.body.stock) : existingProduct.stock,
       updatedAt: new Date()
     };
+
     const result = await req.collections.productsCollection.updateOne({ _id: new ObjectId(req.params.id) }, { $set: updated });
     res.send({ success: true, message: result.modifiedCount ? "Product updated successfully" : "No changes detected" });
   } catch (error) {
@@ -220,11 +230,13 @@ app.post("/sales", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const { productId, quantity, sellPrice } = req.body;
     if (!productId || !quantity || !sellPrice) return res.status(400).send({ success: false, message: 'Missing fields' });
+
     const product = await req.collections.productsCollection.findOne({ _id: new ObjectId(productId) });
     if (!product) return res.status(404).send({ success: false, message: "Product not found" });
 
     const qty = safe(quantity);
     const price = safe(sellPrice);
+
     if (qty <= 0) return res.status(400).send({ success: false, message: "Invalid quantity" });
     if (safe(product.stock) < qty) return res.status(400).send({ success: false, message: "Not enough stock" });
 
@@ -233,11 +245,19 @@ app.post("/sales", verifyToken, verifyAdmin, async (req, res) => {
     const profit = revenue - cost;
 
     const saleDoc = {
-      productId: product._id.toString(), productName: product.name, image: product.image || "",
-      quantity: qty, sellPrice: price, buyPrice: safe(product.buyPrice), revenue, cost, profit, createdAt: new Date()
+      productId: product._id.toString(),
+      productName: product.name,
+      image: product.image || "",
+      quantity: qty,
+      sellPrice: price,
+      buyPrice: safe(product.buyPrice),
+      revenue, cost, profit,
+      createdAt: new Date()
     };
+
     const saleResult = await req.collections.salesCollection.insertOne(saleDoc);
     await req.collections.productsCollection.updateOne({ _id: new ObjectId(productId) }, { $inc: { stock: -qty } });
+
     res.send({ success: true, message: "Sale completed", insertedId: saleResult.insertedId });
   } catch (err) {
     res.status(500).send({ success: false, message: err.message });
@@ -253,6 +273,7 @@ app.delete("/sales/:id", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const sale = await req.collections.salesCollection.findOne({ _id: new ObjectId(req.params.id) });
     if (!sale) return res.status(404).send({ success: false, message: "Sale not found" });
+
     if (ObjectId.isValid(sale.productId)) {
       await req.collections.productsCollection.updateOne({ _id: new ObjectId(sale.productId) }, { $inc: { stock: sale.quantity } });
     }
@@ -388,12 +409,7 @@ app.get("/transactions", verifyToken, verifyAdmin, async (req, res) => {
 app.post("/transactions", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const { name, amount, createdAt, type } = req.body;
-    const payload = {
-      name,
-      amount: safe(amount),
-      type: type || (safe(amount) >= 0 ? "plus" : "minus"),
-      createdAt: createdAt ? new Date(createdAt) : new Date()
-    };
+    const payload = { name, amount: safe(amount), type: type || (safe(amount) >= 0 ? "plus" : "minus"), createdAt: createdAt ? new Date(createdAt) : new Date() };
     res.send(await req.collections.transactionsCollection.insertOne(payload));
   } catch (error) {
     res.status(500).send({ message: "Failed to insert transaction" });
@@ -406,12 +422,7 @@ app.patch("/transactions/:id", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const { name, amount, date, type } = req.body;
     const updateDoc = {
-      $set: {
-        name,
-        amount: safe(amount),
-        type: type || (safe(amount) >= 0 ? "plus" : "minus"),
-        ...(date && { createdAt: new Date(date) })
-      }
+      $set: { name, amount: safe(amount), type: type || (safe(amount) >= 0 ? "plus" : "minus"), ...(date && { createdAt: new Date(date) }) }
     };
     res.send(await req.collections.transactionsCollection.updateOne({ _id: new ObjectId(id) }, updateDoc));
   } catch (error) {
@@ -482,7 +493,6 @@ app.post("/report/monthly/save", verifyToken, verifyAdmin, async (req, res) => {
     const sales = await req.collections.salesCollection.find().toArray();
     const expenses = await req.collections.expensesCollection.find().toArray();
     const monthly = {};
-
     sales.forEach((s) => {
       if (!s.createdAt) return;
       const date = new Date(s.createdAt);
@@ -490,7 +500,6 @@ app.post("/report/monthly/save", verifyToken, verifyAdmin, async (req, res) => {
       if (!monthly[key]) monthly[key] = { month: key, revenue: 0, expense: 0 };
       monthly[key].revenue += safe(s.revenue);
     });
-
     expenses.forEach((e) => {
       if (!e.createdAt) return;
       const date = new Date(e.createdAt);
@@ -498,7 +507,6 @@ app.post("/report/monthly/save", verifyToken, verifyAdmin, async (req, res) => {
       if (!monthly[key]) monthly[key] = { month: key, revenue: 0, expense: 0 };
       monthly[key].expense += safe(e.amount);
     });
-
     const finalData = Object.values(monthly).map(({ month, revenue, expense }) => ({ month, revenue, expense }));
     await req.collections.reportsCollection.deleteMany({});
     if (finalData.length > 0) await req.collections.reportsCollection.insertMany(finalData);
@@ -560,8 +568,7 @@ app.get("/dashboard", verifyToken, verifyAdmin, async (req, res) => {
 
     res.send({
       totalSales, totalCashFromList, totalProfitsCollection, totalTransactionPlus, totalReceivablesPlus,
-      totalExpense, totalStaffSalary, totalTransactionMinus, totalReceivablesMinus,
-      totalStock, totalStockValue, totalCash
+      totalExpense, totalStaffSalary, totalTransactionMinus, totalReceivablesMinus, totalStock, totalStockValue, totalCash
     });
   } catch (error) {
     res.status(500).send({ success: false, message: "Dashboard data fetch failed" });
@@ -570,8 +577,12 @@ app.get("/dashboard", verifyToken, verifyAdmin, async (req, res) => {
 
 // ================= GLOBAL LISTEN =================
 const port = process.env.PORT || 5000;
-app.listen(port, () => {
-  console.log(` Server running on port ${port}`);
+
+// ডেটাবেজ সফলভাবে কানেক্ট হলেই কেবল অ্যাপ রানিং হবে
+connectDB().then(() => {
+  app.listen(port, () => {
+    console.log(` Server running on port ${port}`);
+  });
 });
 
 module.exports = app;
