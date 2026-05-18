@@ -106,7 +106,7 @@ app.post("/jwt", async (req, res) => {
       return res.status(400).send({ message: "Email required" });
     }
 
-    // 🛠️ FIX ১: নতুন গুগল সাইন-ইন ইউজারদের যেন টোকেন ব্লক না করে, তাই ডাটাবেজ চেক শিথিল করা হয়েছে
+    // 🛠️ FIX ১: নতুন গুগল সাইন-ইন ইউজারদের যেন টোকেন ব্লগ না করে, তাই ডাটাবেজ চেক শিথিল করা হয়েছে
     const token = jwt.sign(
       { email: user.email },
       process.env.ACCESS_TOKEN_SECRET,
@@ -514,7 +514,7 @@ app.post("/report/monthly/save", verifyToken, verifyAdmin, async (req, res) => {
       monthly[key].expense += safe(e.amount);
     });
 
-    // 🛠️ FIX ৩: পুরানো মঙ্গোডিবি অবজেক্টের আইডি বাদ দিয়ে ডাটা ফরম্যাট করা যাতে insertMany ক্রাশ না করে
+    // 🛠️ FIX ৩: পুরানো মঙ্গোডিবি অবজেক্টের আইডি বাদ দিয়ে ডাটা ফরম্যাট করা যাতে insertMany ক্রাশ না করে
     const finalData = Object.values(monthly).map(({ month, revenue, expense }) => ({ month, revenue, expense }));
 
     await reportsCollection.deleteMany({});
@@ -574,14 +574,14 @@ app.get("/dashboard", verifyToken, verifyAdmin, async (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  res.send("💎 AL AMIN JEWELLERS SERVER IS READY FOR VERCEL");
+  res.send(" AL AMIN JEWELLERS SERVER IS READY FOR VERCEL");
 });
 
 // ================= LOCALHOST TRICK =================
 if (process.env.NODE_ENV !== "production") {
   const port = process.env.PORT || 5000;
   app.listen(port, () => {
-    console.log(`🚀 Local Server running on port ${port}`);
+    console.log(` Local Server running on port ${port}`);
   });
 }
 
