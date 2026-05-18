@@ -17,10 +17,9 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// API Rate Limiter (সার্ভার সুরক্ষার জন্য)
 app.use(rateLimit({
-  windowMs: 15 * 60 * 1000, // ১৫ মিনিট
-  max: 500 // সর্বোচ্চ ৫০০ রিকোয়েস্ট
+  windowMs: 15 * 60 * 1000,
+  max: 500
 }));
 
 // ================= SAFE NUMBER CONVERTER =================
@@ -32,7 +31,7 @@ let client;
 let db;
 
 async function connectDB() {
-  if (db) return db; // Vercel Optimization
+  if (db) return db;
   client = new MongoClient(uri, {
     serverApi: {
       version: ServerApiVersion.v1,
@@ -72,17 +71,12 @@ app.use(async (req, res, next) => {
 // ================= VERIFY TOKEN =================
 const verifyToken = (req, res, next) => {
   const authHeader = req.headers.authorization;
-  if (!authHeader) {
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
     return res.status(401).send({ message: "Unauthorized access" });
-  }
-  if (!authHeader.startsWith("Bearer ")) {
-    return res.status(401).send({ message: "Invalid authorization format" });
   }
   const token = authHeader.split(" ")[1];
   jwt.verify(token, process.env.ACCESS_TOKEN_SECRET, (err, decoded) => {
-    if (err) {
-      return res.status(403).send({ message: "Forbidden access" });
-    }
+    if (err) return res.status(403).send({ message: "Forbidden access" });
     req.decoded = decoded;
     next();
   });
@@ -90,27 +84,28 @@ const verifyToken = (req, res, next) => {
 
 // ================= VERIFY ADMIN =================
 const verifyAdmin = async (req, res, next) => {
-  const { usersCollection } = req.collections;
-  const user = await usersCollection.findOne({ email: req.decoded.email });
-  if (!user || user.role !== "admin") {
-    return res.status(403).send({ message: "Forbidden access" });
+  try {
+    const { usersCollection } = req.collections;
+    if (!req.decoded?.email) return res.status(401).send({ message: "Unauthorized access" });
+    const user = await usersCollection.findOne({ email: req.decoded.email });
+    if (!user || user.role !== "admin") return res.status(403).send({ message: "Forbidden access" });
+    next();
+  } catch (error) {
+    res.status(500).send({ message: "Internal Server Error" });
   }
-  next();
 };
+
+// Base Route
+app.get("/", (req, res) => {
+  res.send({ message: "Jewellers Shop Server is running flawlessly 🚀" });
+});
 
 // ================= JWT AUTHENTICATION =================
 app.post("/jwt", async (req, res) => {
   try {
     const user = req.body;
-    if (!user?.email) {
-      return res.status(400).send({ message: "Email required" });
-    }
-
-    const token = jwt.sign(
-      { email: user.email },
-      process.env.ACCESS_TOKEN_SECRET,
-      { expiresIn: "7d" }
-    );
+    if (!user?.email) return res.status(400).send({ message: "Email required" });
+    const token = jwt.sign({ email: user.email }, process.env.ACCESS_TOKEN_SECRET, { expiresIn: "7d" });
     res.send({ token });
   } catch (error) {
     res.status(500).send({ message: "JWT generation failed", error: error.message });
@@ -121,88 +116,53 @@ app.post("/jwt", async (req, res) => {
 app.post("/users", async (req, res) => {
   const { usersCollection } = req.collections;
   const exist = await usersCollection.findOne({ email: req.body.email });
-  if (exist) {
-    return res.send({ message: "user already exists", insertedId: null });
-  }
+  if (exist) return res.send({ message: "user already exists", insertedId: null });
   const user = { ...req.body, role: "user", createdAt: new Date() };
-  const result = await usersCollection.insertOne(user);
-  res.send(result);
+  res.send(await usersCollection.insertOne(user));
 });
 
 app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
-  const { usersCollection } = req.collections;
-  res.send(await usersCollection.find().toArray());
+  res.send(await req.collections.usersCollection.find().toArray());
 });
 
 app.get("/users/admin/:email", verifyToken, async (req, res) => {
-  const { usersCollection } = req.collections;
   const email = req.params.email;
-  if (email !== req.decoded.email) {
-    return res.status(403).send({ message: "Forbidden access" });
-  }
-  const user = await usersCollection.findOne({ email });
-  let admin = false;
-  if (user) {
-    admin = user.role === "admin";
-  }
-  res.send({ admin });
+  if (email !== req.decoded.email) return res.status(403).send({ message: "Forbidden access" });
+  const user = await req.collections.usersCollection.findOne({ email });
+  res.send({ admin: user?.role === "admin" });
 });
 
 app.patch('/users/admin/:id', verifyToken, verifyAdmin, async (req, res) => {
-  if (!ObjectId.isValid(req.params.id)) {
-    return res.status(400).send({ message: "Invalid ID" });
-  }
-  const { usersCollection } = req.collections;
-  const filter = { _id: new ObjectId(req.params.id) };
-  const updatedDoc = { $set: { role: 'admin' } };
-  res.send(await usersCollection.updateOne(filter, updatedDoc));
+  if (!ObjectId.isValid(req.params.id)) return res.status(400).send({ message: "Invalid ID" });
+  res.send(await req.collections.usersCollection.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { role: 'admin' } }));
 });
 
 app.delete('/users/:id', verifyToken, verifyAdmin, async (req, res) => {
-  if (!ObjectId.isValid(req.params.id)) {
-    return res.status(400).send({ message: "Invalid ID" });
-  }
-  const { usersCollection } = req.collections;
-  const query = { _id: new ObjectId(req.params.id) };
-  res.send(await usersCollection.deleteOne(query));
+  if (!ObjectId.isValid(req.params.id)) return res.status(400).send({ message: "Invalid ID" });
+  res.send(await req.collections.usersCollection.deleteOne({ _id: new ObjectId(req.params.id) }));
 });
 
 // ================= CARTS API =================
 app.get("/carts", verifyToken, async (req, res) => {
-  const { cartsCollection } = req.collections;
-  const email = req.query.email;
-  if (email !== req.decoded.email) {
-    return res.status(403).send({ message: "forbidden access" });
-  }
-  res.send(await cartsCollection.find({ email }).toArray());
+  if (req.query.email !== req.decoded.email) return res.status(403).send({ message: "forbidden access" });
+  res.send(await req.collections.cartsCollection.find({ email: req.query.email }).toArray());
 });
 
 app.post("/carts", verifyToken, async (req, res) => {
-  const { cartsCollection } = req.collections;
-  if (req.body.email !== req.decoded.email) {
-    return res.status(403).send({ message: "forbidden access" });
-  }
-  res.send(await cartsCollection.insertOne(req.body));
+  if (req.body.email !== req.decoded.email) return res.status(403).send({ message: "forbidden access" });
+  res.send(await req.collections.cartsCollection.insertOne(req.body));
 });
 
 app.delete("/carts/:id", verifyToken, async (req, res) => {
-  const { cartsCollection } = req.collections;
-  if (!ObjectId.isValid(req.params.id)) {
-    return res.status(400).send({ message: "Invalid ID" });
-  }
-  const cart = await cartsCollection.findOne({ _id: new ObjectId(req.params.id) });
-  if (!cart) {
-    return res.status(404).send({ message: "Cart not found" });
-  }
-  if (cart.email !== req.decoded.email) {
-    return res.status(403).send({ message: "Forbidden access" });
-  }
-  res.send(await cartsCollection.deleteOne({ _id: new ObjectId(req.params.id) }));
+  if (!ObjectId.isValid(req.params.id)) return res.status(400).send({ message: "Invalid ID" });
+  const cart = await req.collections.cartsCollection.findOne({ _id: new ObjectId(req.params.id) });
+  if (!cart) return res.status(404).send({ message: "Cart not found" });
+  if (cart.email !== req.decoded.email) return res.status(403).send({ message: "Forbidden access" });
+  res.send(await req.collections.cartsCollection.deleteOne({ _id: new ObjectId(req.params.id) }));
 });
 
 // ================= PRODUCTS API =================
 app.post("/products", verifyToken, verifyAdmin, async (req, res) => {
-  const { productsCollection } = req.collections;
   const p = req.body;
   const product = {
     name: p.name, karat: p.karat, image: p.image,
@@ -210,36 +170,25 @@ app.post("/products", verifyToken, verifyAdmin, async (req, res) => {
     vori: safe(p.vori), ana: safe(p.ana), rati: safe(p.rati), point: safe(p.point),
     createdAt: new Date()
   };
-  res.send(await productsCollection.insertOne(product));
+  res.send(await req.collections.productsCollection.insertOne(product));
 });
 
 app.get("/products", async (req, res) => {
-  const { productsCollection } = req.collections;
-  res.send(await productsCollection.find().sort({ createdAt: -1 }).toArray());
+  res.send(await req.collections.productsCollection.find().sort({ createdAt: -1 }).toArray());
 });
 
 app.get('/products/:id', async (req, res) => {
-  if (!ObjectId.isValid(req.params.id)) {
-    return res.status(400).send({ message: "Invalid ID" });
-  }
-  const { productsCollection } = req.collections;
-  const product = await productsCollection.findOne({ _id: new ObjectId(req.params.id) });
-  if (!product) {
-    return res.status(404).send({ message: "Product not found" });
-  }
+  if (!ObjectId.isValid(req.params.id)) return res.status(400).send({ message: "Invalid ID" });
+  const product = await req.collections.productsCollection.findOne({ _id: new ObjectId(req.params.id) });
+  if (!product) return res.status(404).send({ message: "Product not found" });
   res.send(product);
 });
 
 app.patch('/products/:id', verifyToken, verifyAdmin, async (req, res) => {
-  if (!ObjectId.isValid(req.params.id)) {
-    return res.status(400).send({ success: false, message: "Invalid ID" });
-  }
-  const { productsCollection } = req.collections;
+  if (!ObjectId.isValid(req.params.id)) return res.status(400).send({ success: false, message: "Invalid ID" });
   try {
-    const existingProduct = await productsCollection.findOne({ _id: new ObjectId(req.params.id) });
-    if (!existingProduct) {
-      return res.status(404).send({ success: false, message: "Product not found" });
-    }
+    const existingProduct = await req.collections.productsCollection.findOne({ _id: new ObjectId(req.params.id) });
+    if (!existingProduct) return res.status(404).send({ success: false, message: "Product not found" });
     const updated = {
       name: req.body.name || existingProduct.name,
       karat: req.body.karat || existingProduct.karat,
@@ -253,39 +202,31 @@ app.patch('/products/:id', verifyToken, verifyAdmin, async (req, res) => {
       stock: req.body.stock !== undefined ? safe(req.body.stock) : existingProduct.stock,
       updatedAt: new Date()
     };
-    const result = await productsCollection.updateOne({ _id: new ObjectId(req.params.id) }, { $set: updated });
-    res.send({ success: true, message: result.modifiedCount ? "Product updated successfully" : "No changes detected", result });
+    const result = await req.collections.productsCollection.updateOne({ _id: new ObjectId(req.params.id) }, { $set: updated });
+    res.send({ success: true, message: result.modifiedCount ? "Product updated successfully" : "No changes detected" });
   } catch (error) {
     res.status(500).send({ success: false, message: "Update failed", error: error.message });
   }
 });
 
 app.delete("/products/:id", verifyToken, verifyAdmin, async (req, res) => {
-  if (!ObjectId.isValid(req.params.id)) {
-    return res.status(400).send({ success: false, message: "Invalid ID" });
-  }
-  const { productsCollection } = req.collections;
-  await productsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+  if (!ObjectId.isValid(req.params.id)) return res.status(400).send({ success: false, message: "Invalid ID" });
+  await req.collections.productsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
   res.send({ success: true, message: "Product deleted successfully" });
 });
 
 // ================= SALES API =================
 app.post("/sales", verifyToken, verifyAdmin, async (req, res) => {
-  const { salesCollection, productsCollection } = req.collections;
   try {
     const { productId, quantity, sellPrice } = req.body;
-    if (!productId || !quantity || !sellPrice) {
-      return res.status(400).send({ success: false, message: 'Missing fields' });
-    }
-    const product = await productsCollection.findOne({ _id: new ObjectId(productId) });
+    if (!productId || !quantity || !sellPrice) return res.status(400).send({ success: false, message: 'Missing fields' });
+    const product = await req.collections.productsCollection.findOne({ _id: new ObjectId(productId) });
     if (!product) return res.status(404).send({ success: false, message: "Product not found" });
 
     const qty = safe(quantity);
     const price = safe(sellPrice);
     if (qty <= 0) return res.status(400).send({ success: false, message: "Invalid quantity" });
-    if (safe(product.stock) < qty) {
-      return res.status(400).send({ success: false, message: "Not enough stock" });
-    }
+    if (safe(product.stock) < qty) return res.status(400).send({ success: false, message: "Not enough stock" });
 
     const revenue = price * qty;
     const cost = safe(product.buyPrice) * qty;
@@ -295,29 +236,27 @@ app.post("/sales", verifyToken, verifyAdmin, async (req, res) => {
       productId: product._id.toString(), productName: product.name, image: product.image || "",
       quantity: qty, sellPrice: price, buyPrice: safe(product.buyPrice), revenue, cost, profit, createdAt: new Date()
     };
-    const saleResult = await salesCollection.insertOne(saleDoc);
-    await productsCollection.updateOne({ _id: new ObjectId(productId) }, { $inc: { stock: -qty } });
-    res.send({ success: true, message: "Sale completed", insertedId: saleResult.insertedId, sale: saleDoc });
+    const saleResult = await req.collections.salesCollection.insertOne(saleDoc);
+    await req.collections.productsCollection.updateOne({ _id: new ObjectId(productId) }, { $inc: { stock: -qty } });
+    res.send({ success: true, message: "Sale completed", insertedId: saleResult.insertedId });
   } catch (err) {
     res.status(500).send({ success: false, message: err.message });
   }
 });
 
 app.get("/sales", verifyToken, verifyAdmin, async (req, res) => {
-  const { salesCollection } = req.collections;
-  res.send(await salesCollection.find().toArray());
+  res.send(await req.collections.salesCollection.find().toArray());
 });
 
 app.delete("/sales/:id", verifyToken, verifyAdmin, async (req, res) => {
-  if (!ObjectId.isValid(req.params.id)) {
-    return res.status(400).send({ message: "Invalid ID" });
-  }
-  const { salesCollection, productsCollection } = req.collections;
+  if (!ObjectId.isValid(req.params.id)) return res.status(400).send({ message: "Invalid ID" });
   try {
-    const sale = await salesCollection.findOne({ _id: new ObjectId(req.params.id) });
+    const sale = await req.collections.salesCollection.findOne({ _id: new ObjectId(req.params.id) });
     if (!sale) return res.status(404).send({ success: false, message: "Sale not found" });
-    await productsCollection.updateOne({ _id: new ObjectId(sale.productId) }, { $inc: { stock: sale.quantity } });
-    await salesCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+    if (ObjectId.isValid(sale.productId)) {
+      await req.collections.productsCollection.updateOne({ _id: new ObjectId(sale.productId) }, { $inc: { stock: sale.quantity } });
+    }
+    await req.collections.salesCollection.deleteOne({ _id: new ObjectId(req.params.id) });
     res.send({ success: true });
   } catch (error) {
     res.status(500).send({ success: false, message: error.message });
@@ -326,37 +265,36 @@ app.delete("/sales/:id", verifyToken, verifyAdmin, async (req, res) => {
 
 // ================= PROFITS API =================
 app.post("/profits", verifyToken, verifyAdmin, async (req, res) => {
-  const { profitsCollection } = req.collections;
   const data = { note: req.body.note || "", amount: safe(req.body.amount), createdAt: new Date() };
-  const result = await profitsCollection.insertOne(data);
+  const result = await req.collections.profitsCollection.insertOne(data);
   res.send({ success: true, insertedId: result.insertedId });
 });
 
 app.get("/profits", verifyToken, verifyAdmin, async (req, res) => {
-  const { profitsCollection } = req.collections;
-  res.send(await profitsCollection.find().toArray());
+  res.send(await req.collections.profitsCollection.find().toArray());
 });
 
 app.patch("/profits/:id", verifyToken, verifyAdmin, async (req, res) => {
   if (!ObjectId.isValid(req.params.id)) return res.status(400).send({ message: "Invalid ID" });
-  const { profitsCollection } = req.collections;
-  const result = await profitsCollection.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { note: req.body.note, amount: safe(req.body.amount) } });
+  const result = await req.collections.profitsCollection.updateOne({ _id: new ObjectId(req.params.id) }, { $set: { note: req.body.note, amount: safe(req.body.amount) } });
   res.send({ success: result.modifiedCount > 0 });
 });
 
 app.delete("/profits/:id", verifyToken, verifyAdmin, async (req, res) => {
   if (!ObjectId.isValid(req.params.id)) return res.status(400).send({ message: "Invalid ID" });
-  const { profitsCollection } = req.collections;
-  const result = await profitsCollection.deleteOne({ _id: new ObjectId(req.params.id) }, { $set: { note: req.body.note, amount: safe(req.body.amount) } });
-  res.send({ success: result.deletedCount > 0 });
+  try {
+    const result = await req.collections.profitsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+    res.send({ success: result.deletedCount > 0 });
+  } catch (error) {
+    res.status(500).send({ success: false, message: error.message });
+  }
 });
 
 // ================= STAFF API =================
 app.post("/staffs", verifyToken, verifyAdmin, async (req, res) => {
-  const { staffCollection } = req.collections;
   const staffData = { ...req.body };
   delete staffData._id;
-  res.status(201).send(await staffCollection.insertOne(staffData));
+  res.status(201).send(await req.collections.staffCollection.insertOne(staffData));
 });
 
 app.get("/staffs", verifyToken, verifyAdmin, async (req, res) => {
@@ -419,23 +357,75 @@ app.get("/receivables", verifyToken, verifyAdmin, async (req, res) => {
 
 app.patch("/receivables/:id", verifyToken, verifyAdmin, async (req, res) => {
   if (!ObjectId.isValid(req.params.id)) return res.status(400).send({ message: "Invalid ID" });
-  const updatedData = { name: req.body.name, amount: safe(req.body.amount), createdAt: req.body.date ? new Date(req.body.date) : undefined, updatedAt: new Date() };
+  const updatedData = { name: req.body.name, amount: safe(req.body.amount), updatedAt: new Date() };
+  if (req.body.date) {
+    updatedData.createdAt = new Date(req.body.date);
+  }
   await req.collections.receivablesCollection.updateOne({ _id: new ObjectId(req.params.id) }, { $set: updatedData });
   res.send({ success: true });
 });
 
+app.delete("/receivables/:id", verifyToken, verifyAdmin, async (req, res) => {
+  if (!ObjectId.isValid(req.params.id)) return res.status(400).send({ message: "Invalid ID Format" });
+  try {
+    const result = await req.collections.receivablesCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+    if (result.deletedCount === 0) return res.status(404).send({ success: false, message: "Record not found" });
+    res.send({ success: true, message: "Receivable record deleted successfully" });
+  } catch (error) {
+    res.status(500).send({ success: false, message: "Delete failed", error: error.message });
+  }
+});
+
 // ================= TRANSACTIONS API =================
 app.get("/transactions", verifyToken, verifyAdmin, async (req, res) => {
-  res.send(await req.collections.transactionsCollection.find().toArray());
+  try {
+    res.send(await req.collections.transactionsCollection.find().sort({ createdAt: -1 }).toArray());
+  } catch (error) {
+    res.status(500).send({ message: "Failed to fetch transactions" });
+  }
 });
 
 app.post("/transactions", verifyToken, verifyAdmin, async (req, res) => {
-  res.send(await req.collections.transactionsCollection.insertOne({ ...req.body, amount: safe(req.body.amount), createdAt: new Date() }));
+  try {
+    const { name, amount, createdAt, type } = req.body;
+    const payload = {
+      name,
+      amount: safe(amount),
+      type: type || (safe(amount) >= 0 ? "plus" : "minus"),
+      createdAt: createdAt ? new Date(createdAt) : new Date()
+    };
+    res.send(await req.collections.transactionsCollection.insertOne(payload));
+  } catch (error) {
+    res.status(500).send({ message: "Failed to insert transaction" });
+  }
+});
+
+app.patch("/transactions/:id", verifyToken, verifyAdmin, async (req, res) => {
+  const id = req.params.id;
+  if (!ObjectId.isValid(id)) return res.status(400).send({ message: "Invalid ID Format" });
+  try {
+    const { name, amount, date, type } = req.body;
+    const updateDoc = {
+      $set: {
+        name,
+        amount: safe(amount),
+        type: type || (safe(amount) >= 0 ? "plus" : "minus"),
+        ...(date && { createdAt: new Date(date) })
+      }
+    };
+    res.send(await req.collections.transactionsCollection.updateOne({ _id: new ObjectId(id) }, updateDoc));
+  } catch (error) {
+    res.status(500).send({ message: "Failed to update transaction" });
+  }
 });
 
 app.delete("/transactions/:id", verifyToken, verifyAdmin, async (req, res) => {
-  if (!ObjectId.isValid(req.params.id)) return res.status(400).send({ message: "Invalid ID" });
-  res.send(await req.collections.transactionsCollection.deleteOne({ _id: new ObjectId(req.params.id) }));
+  if (!ObjectId.isValid(req.params.id)) return res.status(400).send({ message: "Invalid ID Format" });
+  try {
+    res.send(await req.collections.transactionsCollection.deleteOne({ _id: new ObjectId(req.params.id) }));
+  } catch (error) {
+    res.status(500).send({ message: "Failed to delete transaction" });
+  }
 });
 
 // ================= CASH LIST API =================
@@ -466,10 +456,7 @@ app.get("/cash-total", verifyToken, verifyAdmin, async (req, res) => {
 
 // ================= ANALYTICS & REPORTS =================
 app.get("/admin-stats", verifyToken, verifyAdmin, async (req, res) => {
-  const result = await req.collections.salesCollection.aggregate([
-    { $group: { _id: "$productName", quantity: { $sum: "$quantity" }, revenue: { $sum: "$revenue" } } }
-  ]).toArray();
-  res.send(result);
+  res.send(await req.collections.salesCollection.aggregate([{ $group: { _id: "$productName", quantity: { $sum: "$quantity" }, revenue: { $sum: "$revenue" } } }]).toArray());
 });
 
 app.get("/analytics/daily", verifyToken, verifyAdmin, async (req, res) => {
@@ -491,10 +478,9 @@ app.get("/analytics/daily", verifyToken, verifyAdmin, async (req, res) => {
 });
 
 app.post("/report/monthly/save", verifyToken, verifyAdmin, async (req, res) => {
-  const { salesCollection, expensesCollection, reportsCollection } = req.collections;
   try {
-    const sales = await salesCollection.find().toArray();
-    const expenses = await expensesCollection.find().toArray();
+    const sales = await req.collections.salesCollection.find().toArray();
+    const expenses = await req.collections.expensesCollection.find().toArray();
     const monthly = {};
 
     sales.forEach((s) => {
@@ -514,14 +500,11 @@ app.post("/report/monthly/save", verifyToken, verifyAdmin, async (req, res) => {
     });
 
     const finalData = Object.values(monthly).map(({ month, revenue, expense }) => ({ month, revenue, expense }));
-
-    await reportsCollection.deleteMany({});
-    if (finalData.length > 0) {
-      await reportsCollection.insertMany(finalData);
-    }
+    await req.collections.reportsCollection.deleteMany({});
+    if (finalData.length > 0) await req.collections.reportsCollection.insertMany(finalData);
     res.send({ success: true, message: "Monthly report saved", data: finalData });
   } catch (error) {
-    res.status(500).send({ message: "Save failed", error: error.message });
+    res.status(500).send({ message: "Save failed" });
   }
 });
 
@@ -531,72 +514,64 @@ app.get("/report/monthly", verifyToken, verifyAdmin, async (req, res) => {
 
 // ================= COMPLETE ADVANCED DASHBOARD =================
 app.get("/dashboard", verifyToken, verifyAdmin, async (req, res) => {
-  const { salesCollection, expensesCollection, staffCollection, receivablesCollection, productsCollection, cashListCollection, transactionsCollection } = req.collections;
   try {
-    const salesData = await salesCollection.find().toArray();
-    const expenses = await expensesCollection.find().toArray();
-    const staff = await staffCollection.find().toArray();
-    const receivables = await receivablesCollection.find().toArray();
-    const cashList = await cashListCollection.find().toArray();
-    const transactions = await transactionsCollection.find().toArray();
+    const salesData = await req.collections.salesCollection.find().toArray();
+    const expenses = await req.collections.expensesCollection.find().toArray();
+    const staff = await req.collections.staffCollection.find().toArray();
+    const receivables = await req.collections.receivablesCollection.find().toArray();
+    const cashList = await req.collections.cashListCollection.find().toArray();
+    const transactions = await req.collections.transactionsCollection.find().toArray();
+    const profitsData = await req.collections.profitsCollection.find().toArray();
+    const products = await req.collections.productsCollection.find().toArray();
 
-    // ১. প্রোডাক্ট বিক্রির টোটাল সেল প্রাইস (Revenue) এবং বাই প্রাইস (Cost) হিসাব করা
-    const totalSales = salesData.reduce((sum, s) => sum + safe(s.revenue), 0); // Sell Price Add
-    const totalProductBuyCost = salesData.reduce((sum, s) => sum + safe(s.cost), 0); // Product Buy Price 
-    const totalProfit = salesData.reduce((sum, s) => sum + safe(s.profit), 0); // লাভ আলাদা প্রফিটে জমা হবে
+    const totalSales = salesData.reduce((sum, s) => sum + safe(s.revenue), 0);
+    const totalCashFromList = cashList.reduce((sum, c) => sum + safe(c.amount), 0);
+    const totalProfitsCollection = profitsData.reduce((sum, p) => sum + safe(p.amount), 0);
 
-    // ২. সাধারণ খরচ এবং স্টাফ সেলারি খরচ (যা খরচে যোগ হবে এবং টোটাল ক্যাশ থেকে মাইনাস হবে)
-    const baseExpense = expenses.reduce((sum, e) => sum + safe(e.amount), 0);
-    const totalStaffSalary = staff.reduce((sum, st) => sum + safe(st.monthlySalary || st.salary), 0);
-    const totalExpense = baseExpense + totalStaffSalary; // স্টাফের বেতন খরচে অ্যাড হলো
-
-    // ৩. পাবো টাকা (Receivable) যা টোটাল ক্যাশ থেকে মাইনাস হবে
-    const totalReceivable = receivables.reduce((sum, r) => sum + safe(r.amount), 0);
-
-    // ৪. ক্যাশ অ্যাড লিস্ট থেকে টোটাল ক্যাশ অ্যাড
-    const totalCashListFromList = cashList.reduce((sum, c) => sum + safe(c.amount), 0);
-
-    // ৫. হাওলাদ হিসাব (Plus = হাওলাদ নেওয়া, Minus = হাওলাদ দেওয়া)
-    let totalTransactionPlus = 0; // হাওলাদ নিলে যোগ
-    let totalTransactionMinus = 0; // হাওলাদ দিলে মাইনাস
+    let totalTransactionPlus = 0;
     transactions.forEach((t) => {
-      if (t?.type === "plus") totalTransactionPlus += safe(t.amount);
-      if (t?.type === "minus") totalTransactionMinus += safe(t.amount);
+      if (t?.type === "plus" || (!t.type && safe(t.amount) > 0)) totalTransactionPlus += Math.abs(safe(t.amount));
     });
 
-    // 🛠️ আপনার নির্দিষ্ট লজিক অনুযায়ী ক্যাশ ক্যালকুলেশন ফিক্স:
-    // ক্যাশ প্লাস হবে: টোটাল সেল প্রাইস (totalSales) + ক্যাশ লিস্ট (totalCashListFromList) + হাওলাদ নেওয়া (totalTransactionPlus)
-    // ক্যাশ মাইনাস হবে: প্রোডাক্ট বাই প্রাইস খরচ (totalProductBuyCost) + স্টাফের বেতনসহ সব খরচ (totalExpense) + বকেয়া/পাবো টাকা (totalReceivable) + হাওলাদ দেওয়া (totalTransactionMinus)
-    const totalCash = (totalSales + totalCashListFromList + totalTransactionPlus) -
-      (totalProductBuyCost + totalExpense + totalReceivable + totalTransactionMinus);
+    let totalReceivablesPlus = 0;
+    receivables.forEach((r) => {
+      if (safe(r.amount) > 0) totalReceivablesPlus += safe(r.amount);
+    });
+
+    const totalExpense = expenses.reduce((sum, e) => sum + safe(e.amount), 0);
+    const totalStaffSalary = staff.reduce((sum, st) => sum + safe(st.monthlySalary || st.salary), 0);
+
+    let totalTransactionMinus = 0;
+    transactions.forEach((t) => {
+      if (t?.type === "minus" || (!t.type && safe(t.amount) < 0)) totalTransactionMinus += Math.abs(safe(t.amount));
+    });
+
+    let totalReceivablesMinus = 0;
+    receivables.forEach((r) => {
+      if (safe(r.amount) < 0) totalReceivablesMinus += Math.abs(safe(r.amount));
+    });
+
+    const totalStock = products.reduce((sum, p) => sum + safe(p.stock), 0);
+    const totalStockValue = products.reduce((sum, p) => sum + (safe(p.stock) * safe(p.buyPrice)), 0);
+
+    const allPlus = totalSales + totalCashFromList + totalProfitsCollection + totalTransactionPlus + totalReceivablesPlus;
+    const allMinus = totalExpense + totalStaffSalary + totalTransactionMinus + totalReceivablesMinus;
+    const totalCash = allPlus - allMinus;
 
     res.send({
-      totalSales,
-      totalProfit,
-      totalExpense,
-      totalStaffSalary,
-      totalReceivable,
-      totalCashFromList: totalCashListFromList,
-      totalTransactionPlus,
-      totalTransactionMinus,
-      totalCash
+      totalSales, totalCashFromList, totalProfitsCollection, totalTransactionPlus, totalReceivablesPlus,
+      totalExpense, totalStaffSalary, totalTransactionMinus, totalReceivablesMinus,
+      totalStock, totalStockValue, totalCash
     });
   } catch (error) {
-    console.error("DASHBOARD ERROR:", error);
-    res.status(500).send({ success: false, message: "Dashboard data fetch failed", error: error.message });
+    res.status(500).send({ success: false, message: "Dashboard data fetch failed" });
   }
 });
 
-app.get("/", (req, res) => {
-  res.send(" AL AMIN JEWELLERS SERVER IS READY FOR VERCEL");
+// ================= GLOBAL LISTEN =================
+const port = process.env.PORT || 5000;
+app.listen(port, () => {
+  console.log(` Server running on port ${port}`);
 });
-
-// ================= LOCALHOST TRICK =================
-if (process.env.NODE_ENV !== "production") {
-  const port = process.env.PORT || 5000;
-  app.listen(port, () => {
-    console.log(` Local Server running on port ${port}`);
-  });
-}
 
 module.exports = app;
