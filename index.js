@@ -4,6 +4,7 @@ const cors = require("cors");
 const jwt = require("jsonwebtoken");
 const rateLimit = require("express-rate-limit");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -18,19 +19,18 @@ const validateId = (req, res, next) => {
   next();
 };
 
-// ================= MIDDLEWARE =================
+// ================= MIDDLEWARE & CORS FIXED =================
+const corsOptions = {
+  origin: [
+    'https://shop-jewellers-client.web.app', // আপনার মেইন লাইভ সাইট
+    'http://localhost:5173'                  // লোকালহোস্টে টেস্ট করার জন্য
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS']
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-app.use(
-  cors({
-    origin: [
-      "http://localhost:5173",
-      "https://shop-jewellers-client.web.app",
-      "https://shop-jewellers-client.firebaseapp.com",
-    ],
-    credentials: true,
-  })
-);
 
 // ================= RATE LIMIT =================
 const limiter = rateLimit({
