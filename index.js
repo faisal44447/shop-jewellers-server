@@ -106,7 +106,6 @@ app.post("/jwt", async (req, res) => {
       return res.status(400).send({ message: "Email required" });
     }
 
-    // 🛠️ FIX ১: নতুন গুগল সাইন-ইন ইউজারদের যেন টোকেন ব্লগ না করে, তাই ডাটাবেজ চেক শিথিল করা হয়েছে
     const token = jwt.sign(
       { email: user.email },
       process.env.ACCESS_TOKEN_SECRET,
@@ -348,7 +347,7 @@ app.patch("/profits/:id", verifyToken, verifyAdmin, async (req, res) => {
 app.delete("/profits/:id", verifyToken, verifyAdmin, async (req, res) => {
   if (!ObjectId.isValid(req.params.id)) return res.status(400).send({ message: "Invalid ID" });
   const { profitsCollection } = req.collections;
-  const result = await profitsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+  const result = await profitsCollection.deleteOne({ _id: new ObjectId(req.params.id) }, { $set: { note: req.body.note, amount: safe(req.body.amount) } });
   res.send({ success: result.deletedCount > 0 });
 });
 
@@ -514,7 +513,6 @@ app.post("/report/monthly/save", verifyToken, verifyAdmin, async (req, res) => {
       monthly[key].expense += safe(e.amount);
     });
 
-    // 🛠️ FIX ৩: পুরানো মঙ্গোডিবি অবজেক্টের আইডি বাদ দিয়ে ডাটা ফরম্যাট করা যাতে insertMany ক্রাশ না করে
     const finalData = Object.values(monthly).map(({ month, revenue, expense }) => ({ month, revenue, expense }));
 
     await reportsCollection.deleteMany({});
@@ -539,33 +537,49 @@ app.get("/dashboard", verifyToken, verifyAdmin, async (req, res) => {
     const expenses = await expensesCollection.find().toArray();
     const staff = await staffCollection.find().toArray();
     const receivables = await receivablesCollection.find().toArray();
-    const products = await productsCollection.find().toArray();
     const cashList = await cashListCollection.find().toArray();
     const transactions = await transactionsCollection.find().toArray();
 
-    const totalSales = salesData.reduce((sum, s) => sum + safe(s.revenue), 0);
-    const totalProfit = salesData.reduce((sum, s) => sum + safe(s.profit), 0);
-    const totalExpense = expenses.reduce((sum, e) => sum + safe(e.amount), 0);
+    // ১. প্রোডাক্ট বিক্রির টোটাল সেল প্রাইস (Revenue) এবং বাই প্রাইস (Cost) হিসাব করা
+    const totalSales = salesData.reduce((sum, s) => sum + safe(s.revenue), 0); // Sell Price Add
+    const totalProductBuyCost = salesData.reduce((sum, s) => sum + safe(s.cost), 0); // Product Buy Price 
+    const totalProfit = salesData.reduce((sum, s) => sum + safe(s.profit), 0); // লাভ আলাদা প্রফিটে জমা হবে
+
+    // ২. সাধারণ খরচ এবং স্টাফ সেলারি খরচ (যা খরচে যোগ হবে এবং টোটাল ক্যাশ থেকে মাইনাস হবে)
+    const baseExpense = expenses.reduce((sum, e) => sum + safe(e.amount), 0);
     const totalStaffSalary = staff.reduce((sum, st) => sum + safe(st.monthlySalary || st.salary), 0);
+    const totalExpense = baseExpense + totalStaffSalary; // স্টাফের বেতন খরচে অ্যাড হলো
+
+    // ৩. পাবো টাকা (Receivable) যা টোটাল ক্যাশ থেকে মাইনাস হবে
     const totalReceivable = receivables.reduce((sum, r) => sum + safe(r.amount), 0);
-    const totalStock = products.reduce((sum, p) => sum + safe(p.stock), 0);
-    const totalStockValue = products.reduce((sum, p) => sum + (safe(p.stock) * safe(p.buyPrice)), 0);
+
+    // ৪. ক্যাশ অ্যাড লিস্ট থেকে টোটাল ক্যাশ অ্যাড
     const totalCashListFromList = cashList.reduce((sum, c) => sum + safe(c.amount), 0);
 
-    let totalTransactionPlus = 0;
-    let totalTransactionMinus = 0;
+    // ৫. হাওলাদ হিসাব (Plus = হাওলাদ নেওয়া, Minus = হাওলাদ দেওয়া)
+    let totalTransactionPlus = 0; // হাওলাদ নিলে যোগ
+    let totalTransactionMinus = 0; // হাওলাদ দিলে মাইনাস
     transactions.forEach((t) => {
       if (t?.type === "plus") totalTransactionPlus += safe(t.amount);
       if (t?.type === "minus") totalTransactionMinus += safe(t.amount);
     });
 
-    // 🛠️ FIX ২: totalSales-এর সাথে totalProfit আর আলাদা করে যোগ করা হবে না (অ্যাকাউন্টিং স্ট্যান্ডার্ড ফিক্স)
-    const totalCash = (totalSales + totalCashListFromList + totalTransactionPlus) - (totalExpense + totalReceivable + totalStaffSalary + totalTransactionMinus);
+    // 🛠️ আপনার নির্দিষ্ট লজিক অনুযায়ী ক্যাশ ক্যালকুলেশন ফিক্স:
+    // ক্যাশ প্লাস হবে: টোটাল সেল প্রাইস (totalSales) + ক্যাশ লিস্ট (totalCashListFromList) + হাওলাদ নেওয়া (totalTransactionPlus)
+    // ক্যাশ মাইনাস হবে: প্রোডাক্ট বাই প্রাইস খরচ (totalProductBuyCost) + স্টাফের বেতনসহ সব খরচ (totalExpense) + বকেয়া/পাবো টাকা (totalReceivable) + হাওলাদ দেওয়া (totalTransactionMinus)
+    const totalCash = (totalSales + totalCashListFromList + totalTransactionPlus) -
+      (totalProductBuyCost + totalExpense + totalReceivable + totalTransactionMinus);
 
     res.send({
-      totalSales, totalProfit, totalExpense, totalStaffSalary, totalReceivable,
-      totalStock, totalStockValue, totalCashFromList: totalCashListFromList,
-      totalTransactionPlus, totalTransactionMinus, totalCash
+      totalSales,
+      totalProfit,
+      totalExpense,
+      totalStaffSalary,
+      totalReceivable,
+      totalCashFromList: totalCashListFromList,
+      totalTransactionPlus,
+      totalTransactionMinus,
+      totalCash
     });
   } catch (error) {
     console.error("DASHBOARD ERROR:", error);
