@@ -165,7 +165,8 @@ app.post("/users", async (req, res) => {
   }
 });
 
-app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
+// 🔓 GET: verifyAdmin সরানো হয়েছে যেন স্টাফরা ইউজার তালিকা দেখতে পারে (প্রয়োজন সাপেক্ষে)
+app.get("/users", verifyToken, async (req, res) => {
   try {
     const result = await usersCollection.find().toArray();
     res.send(result);
@@ -187,6 +188,7 @@ app.get("/users/admin/:email", verifyToken, async (req, res) => {
   }
 });
 
+// 🔒 PATCH/DELETE: এডমিন লক বহাল আছে
 app.patch("/users/admin/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
     const result = await usersCollection.updateOne(
@@ -251,6 +253,7 @@ app.delete("/carts/:id", verifyToken, validateId, async (req, res) => {
 });
 
 // ================= PRODUCTS API =================
+// 🔒 POST: শুধুমাত্র এডমিন প্রোডাক্ট অ্যাড করতে পারবে
 app.post("/products", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const p = req.body;
@@ -275,6 +278,7 @@ app.post("/products", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+// 🔓 GET: সবাই প্রোডাক্ট দেখতে পারবে
 app.get("/products", async (req, res) => {
   try {
     const result = await productsCollection.find().sort({ createdAt: -1 }).toArray();
@@ -296,6 +300,7 @@ app.get("/products/:id", validateId, async (req, res) => {
   }
 });
 
+// 🔒 PATCH/DELETE: শুধুমাত্র এডমিন আপডেট/ডিলিট করবে
 app.patch("/products/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
     const existingProduct = await productsCollection.findOne({ _id: new ObjectId(req.params.id) });
@@ -332,6 +337,7 @@ app.delete("/products/:id", verifyToken, verifyAdmin, validateId, async (req, re
 });
 
 // ================= SALES API =================
+// 🔒 POST/PATCH/DELETE: শুধুমাত্র এডমিন সেলস এন্ট্রি ও এডিট করবে
 app.post("/sales", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const { productId, quantity, sellPrice } = req.body;
@@ -372,7 +378,8 @@ app.post("/sales", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
-app.get("/sales", verifyToken, verifyAdmin, async (req, res) => {
+// 🔓 GET: verifyAdmin সরানো হয়েছে যেন স্টাফরাও সেলস রেকর্ড দেখতে পারে
+app.get("/sales", verifyToken, async (req, res) => {
   try {
     const result = await salesCollection.find().toArray();
     res.send(result);
@@ -387,7 +394,6 @@ app.patch("/sales/:id", verifyToken, verifyAdmin, validateId, async (req, res) =
     if (!existingSale) return res.status(404).send({ success: false, message: "Sale record not found" });
     const newQty = req.body.quantity !== undefined ? safe(req.body.quantity) : existingSale.quantity;
     const newPrice = req.body.sellPrice !== undefined ? safe(req.body.sellPrice) : existingSale.sellPrice;
-
     const qtyDifference = newQty - existingSale.quantity;
     if (qtyDifference !== 0) {
       const product = await productsCollection.findOne({ _id: new ObjectId(existingSale.productId) });
@@ -433,14 +439,11 @@ app.delete("/sales/:id", verifyToken, verifyAdmin, validateId, async (req, res) 
 });
 
 // ================= PROFITS API =================
+// 🔒 POST/PATCH/DELETE: এডমিন অনলি
 app.post("/profits", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const p = req.body;
-    const data = {
-      note: p.note || "",
-      amount: safe(p.amount),
-      createdAt: p.createdAt ? new Date(p.createdAt) : new Date()
-    };
+    const data = { note: p.note || "", amount: safe(p.amount), createdAt: p.createdAt ? new Date(p.createdAt) : new Date() };
     const result = await profitsCollection.insertOne(data);
     res.send({ success: true, insertedId: result.insertedId });
   } catch (error) {
@@ -448,7 +451,8 @@ app.post("/profits", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
-app.get("/profits", verifyToken, verifyAdmin, async (req, res) => {
+// 🔓 GET: verifyAdmin সরানো হয়েছে
+app.get("/profits", verifyToken, async (req, res) => {
   try {
     const result = await profitsCollection.find().sort({ createdAt: -1 }).toArray();
     res.send(result);
@@ -490,6 +494,7 @@ app.delete("/profits/:id", verifyToken, verifyAdmin, validateId, async (req, res
 });
 
 // ================= CASH LIST API =================
+// 🔒 POST/PATCH/DELETE: এডমিন অনলি
 app.post("/cash-list", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const p = req.body;
@@ -508,7 +513,8 @@ app.post("/cash-list", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
-app.get("/cash-list", verifyToken, verifyAdmin, async (req, res) => {
+// 🔓 GET: verifyAdmin সরানো হয়েছে
+app.get("/cash-list", verifyToken, async (req, res) => {
   try {
     const result = await cashListCollection.find().sort({ createdAt: -1 }).toArray();
     res.send(result);
@@ -552,6 +558,7 @@ app.delete("/cash-list/:id", verifyToken, verifyAdmin, validateId, async (req, r
 });
 
 // ================= RECEIVABLE API =================
+// 🔒 POST/PATCH/DELETE: এডমিন অনলি
 app.post("/receivables", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const data = {
@@ -567,7 +574,8 @@ app.post("/receivables", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
-app.get("/receivables", verifyToken, verifyAdmin, async (req, res) => {
+// 🔓 GET: verifyAdmin সরানো হয়েছে
+app.get("/receivables", verifyToken, async (req, res) => {
   try {
     const result = await receivablesCollection.find().sort({ createdAt: -1 }).toArray();
     res.send(result);
@@ -607,6 +615,7 @@ app.delete("/receivables/:id", verifyToken, verifyAdmin, validateId, async (req,
 });
 
 // ================= TRANSACTIONS (HOWLAD) API =================
+// 🔒 POST/PATCH/DELETE: এডমিন অনলি ডাটা অ্যাড বা এডিট করবে
 app.post("/transactions", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const p = req.body;
@@ -625,7 +634,8 @@ app.post("/transactions", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
-app.get("/transactions", verifyToken, verifyAdmin, async (req, res) => {
+// 🔓 GET: verifyAdmin সরানো হয়েছে (আপনার 403 এররটি এখান থেকেই আসছিল, এখন সমাধান হয়ে যাবে)
+app.get("/transactions", verifyToken, async (req, res) => {
   try {
     const result = await transactionsCollection.find().sort({ createdAt: -1 }).toArray();
     res.send(result);
@@ -670,6 +680,7 @@ app.delete("/transactions/:id", verifyToken, verifyAdmin, validateId, async (req
 });
 
 // ================= STAFF API =================
+// 🔒 POST/PATCH/DELETE: এডমিন অনলি
 app.post("/staffs", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const staffData = { ...req.body };
@@ -681,7 +692,8 @@ app.post("/staffs", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
-app.get("/staffs", verifyToken, verifyAdmin, async (req, res) => {
+// 🔓 GET: verifyAdmin সরানো হয়েছে যেন স্টাফ ড্যাশবোর্ডে ডাটা রেন্ডার হতে পারে
+app.get("/staffs", verifyToken, async (req, res) => {
   try {
     const result = await staffCollection.find().toArray();
     res.send(result);
@@ -721,6 +733,7 @@ app.delete("/staffs/:id", verifyToken, verifyAdmin, validateId, async (req, res)
 });
 
 // ================= EXPENSES API =================
+// 🔒 POST/PATCH/DELETE: এডমিন অনলি
 app.post("/expenses", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const p = req.body;
@@ -737,7 +750,8 @@ app.post("/expenses", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
-app.get("/expenses", verifyToken, verifyAdmin, async (req, res) => {
+// 🔓 GET: verifyAdmin সরানো হয়েছে
+app.get("/expenses", verifyToken, async (req, res) => {
   try {
     const result = await expensesCollection.find().sort({ createdAt: -1 }).toArray();
     res.send(result);
@@ -780,6 +794,7 @@ app.delete("/expenses/:id", verifyToken, verifyAdmin, validateId, async (req, re
 });
 
 // ================= ANALYTICS & REPORTS API =================
+// 🔓 GET: রিডিউসড ভেরিফিকেশন (রিপোর্টসগুলো যদি ইউজারদের দেখাতে চান তবে এডমিন তুলে দিতে পারেন, আপাতত এডমিন রাখা হলো কারণ এটি চার্টের মূল অ্যানালিটিক্স)
 app.get("/admin-stats", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const salesColl = req.collections?.salesCollection || salesCollection;
@@ -842,8 +857,8 @@ app.post("/report/monthly/save", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
-// 💰 ৪. ক্যাশ টোটাল এপিআই (কেটে যাওয়া রুটটি সম্পূর্ণ করা হলো)
-app.get("/cash-total", verifyToken, verifyAdmin, async (req, res) => {
+// 🔓 GET: ক্যাশ টোটাল এপিআই থেকে verifyAdmin সরানো হয়েছে
+app.get("/cash-total", verifyToken, async (req, res) => {
   try {
     const cashColl = req.collections?.cashListCollection || cashListCollection;
     const cash = await cashColl.find().toArray();
@@ -854,7 +869,7 @@ app.get("/cash-total", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
-// ================= DASHBOARD ROUTE (FIXED) =================
+// ================= DASHBOARD ROUTE (🔓 ALREADY OPEN FOR STAFFS) =================
 app.get("/dashboard", verifyToken, async (req, res) => {
   try {
     const salesData = await salesCollection.find().toArray();
@@ -881,9 +896,9 @@ app.get("/dashboard", verifyToken, async (req, res) => {
     // ৪. ক্যাশ লিস্ট (অ্যাড ক্যাশ থেকে আসা টাকা)
     const totalCashFromList = cashList.reduce((sum, i) => sum + Number(i?.amount || 0), 0);
 
-    // ৫. ট্রানজেকশন (ধার নেওয়া, ধার দেওয়া, টাকা আদায় ও বাকি)
-    let totalTransactionPlus = 0;  // ধার নেওয়া + টাকা আদায় (ক্যাশ বৃদ্ধি)
-    let totalTransactionMinus = 0; // অন্যকে ধার দেওয়া + বাকি দেওয়া (ক্যাশ হ্রাস)
+    // ৫. ট্রানজেকশন (ধার নেওয়া, ধার দেওয়া, টাকা আদায় ও বাকি)
+    let totalTransactionPlus = 0;
+    let totalTransactionMinus = 0;
 
     transactions.forEach((t) => {
       const amount = Number(t?.amount || 0);
@@ -894,16 +909,15 @@ app.get("/dashboard", verifyToken, async (req, res) => {
       }
     });
 
-    // 🌟 নিখুঁত হিসাবের সূত্র (আপনার রিকোয়ারমেন্ট অনুযায়ী)
+    // 🌟 নিখুঁত হিসাবের সূত্র
     const totalCashCombined = totalSales + totalCashFromList + totalTransactionPlus;
     const totalExpenseCombined = totalExpenseAmount + totalStaffSalary + totalTransactionMinus;
     const netBusinessCash = totalCashCombined - totalExpenseCombined;
 
-    // ৬. স্টক ভ্যালু (আলাদা ট্র্যাকিংয়ের জন্য)
+    // ৬. স্টক ভ্যালু
     const totalStock = products.reduce((sum, i) => sum + Number(i?.stock || 0), 0);
     const totalStockValue = products.reduce((sum, i) => sum + (Number(i?.stock || 0) * Number(i?.buyPrice || 0)), 0);
 
-    // রেসপন্স অবজেক্ট পাঠানো হলো
     res.send({
       totalSales,
       totalProfit,
@@ -912,9 +926,9 @@ app.get("/dashboard", verifyToken, async (req, res) => {
       totalCashFromList,
       totalTransactionPlus,
       totalTransactionMinus,
-      totalCashCombined,        // প্লাস আইটেমগুলোর যোগফল
-      totalExpenseCombined,     // মাইনাস আইটেমগুলোর যোগফল
-      netBusinessCash,          // ফাইনাল ক্যাশ (লাভ/ক্ষতি)
+      totalCashCombined,
+      totalExpenseCombined,
+      netBusinessCash,
       totalStock,
       totalStockValue
     });
@@ -930,12 +944,11 @@ app.use((err, req, res, next) => {
   res.status(500).send({ success: false, message: "Something broke internally!" });
 });
 
-// Local listening (Vercel invokes functions automatically, but it's safe to keep for local build)
+// Local listening
 if (process.env.NODE_ENV !== "production") {
   app.listen(port, () => {
     console.log(`🚀 Server is listening dynamically on port ${port}`);
   });
 }
 
-// 🌟 অত্যন্ত গুরুত্বপূর্ণ: Vercel এ Express অ্যাপ রান করানোর জন্য মডিউল এক্সপোর্ট মাস্ট!
 module.exports = app;
