@@ -854,6 +854,89 @@ app.get("/cash-total", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+// ================= DASHBOARD ROUTE =================
+app.get("/dashboard", verifyToken, async (req, res) => {
+  try {
+    const salesData = await salesCollection.find().toArray();
+    const expenses = await expensesCollection.find().toArray();
+    const staff = await staffCollection.find().toArray();
+    const receivables = await receivablesCollection.find().toArray();
+    const products = await productsCollection.find().toArray();
+    const cashList = await cashListCollection.find().toArray();
+    const transactions = await transactionsCollection.find().toArray();
+
+    // ================= SALES CALCULATION =================
+    let totalSales = 0;
+    let totalProfit = 0;
+    let totalLoss = 0;
+
+    salesData.forEach((s) => {
+      totalSales += Number(s?.revenue || 0);
+      totalProfit += Number(s?.profit || 0);
+    });
+
+    // ================= EXPENSE =================
+    const totalExpense = expenses.reduce((sum, i) => sum + Number(i?.amount || 0), 0);
+
+    // ================= STAFF =================
+    const totalStaffSalary = staff.reduce((sum, i) => sum + Number(i?.monthlySalary || i?.salary || 0), 0);
+
+    // ================= RECEIVABLE =================
+    const totalReceivable = receivables.reduce((sum, i) => sum + Number(i?.amount || 0), 0);
+
+    // ================= STOCK =================
+    const totalStock = products.reduce((sum, i) => sum + Number(i?.stock || 0), 0);
+
+    const totalStockValue = products.reduce((sum, i) => {
+      return sum + (Number(i?.stock || 0) * Number(i?.buyPrice || 0));
+    }, 0);
+
+    // ================= CASH LIST =================
+    const totalCashListFromList = cashList.reduce((sum, i) => sum + Number(i?.amount || 0), 0);
+
+    // ================= TRANSACTIONS =================
+    let plus = 0;
+    let minus = 0;
+
+    transactions.forEach((t) => {
+      const amount = Number(t?.amount || 0);
+      if (t?.type === "plus") plus += amount;
+      if (t?.type === "minus") minus += amount;
+    });
+
+    // ================= FINAL CASH CALCULATION =================
+    const totalCashList =
+      totalSales +
+      totalStockValue +
+      totalCashListFromList +
+      plus -
+      totalExpense -
+      totalReceivable -
+      totalStaffSalary -
+      minus;
+
+    // ================= RESPONSE =================
+    res.send({
+      totalSales,
+      totalProfit,
+      totalLoss,
+      totalExpense,
+      totalStaffSalary,
+      totalReceivable,
+      totalStock,
+      totalStockValue,
+      totalCashList,
+      totalCashFromList: totalCashListFromList,
+      totalTransactionPlus: plus,
+      totalTransactionMinus: minus
+    });
+
+  } catch (error) {
+    console.log("DASHBOARD ERROR:", error);
+    res.status(500).send({ success: false, message: error.message });
+  }
+});
+
 // Global Error Handler for Vercel Serverless Scope
 app.use((err, req, res, next) => {
   console.error("🚨 Global Server Error:", err.stack);
