@@ -165,7 +165,7 @@ app.post("/users", async (req, res) => {
     };
 
     const result = await usersCollection.insertOne(newUser);
-    res.send(result); // এখানে insertedId স্বয়ংক্রিয়ভাবে চলে যাবে
+    res.send(result);
   } catch (error) {
     res.status(500).send({ success: false, message: error.message });
   }
