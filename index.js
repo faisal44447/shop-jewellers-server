@@ -147,19 +147,25 @@ app.post("/users", async (req, res) => {
     if (!user?.email) {
       return res.status(400).send({ success: false, message: "Email Required" });
     }
+
+    // ইমেইল দিয়ে ডাটাবেজে অলরেডি ইউজার আছে কিনা চেক করা
     const existingUser = await usersCollection.findOne({ email: user.email });
     if (existingUser) {
-      return res.send({ success: true, message: "User already exists" });
+      // ইউজার অলরেডি থাকলে সাকসেস ট্রু সহ রেসপন্স পাঠানো, যাতে ফ্রন্টএন্ডে এরর না দেয়
+      return res.send({ success: true, message: "User already exists", insertedId: existingUser._id });
     }
+
+    // নতুন ইউজার ডাটা স্ট্রাকচার
     const newUser = {
       name: user.name || "Anonymous",
       email: user.email,
       image: user.image || "https://i.ibb.co/vHZ369b/placeholder.png",
-      role: "user",
+      role: user.role || "user",
       createdAt: new Date(),
     };
+
     const result = await usersCollection.insertOne(newUser);
-    res.send(result);
+    res.send(result); // এখানে insertedId স্বয়ংক্রিয়ভাবে চলে যাবে
   } catch (error) {
     res.status(500).send({ success: false, message: error.message });
   }
