@@ -963,74 +963,122 @@ app.get("/cash-total", verifyToken, async (req, res) => {
 });
 
 
-// ================= DASHBOARD ROUTE (🔓 ALREADY OPEN FOR STAFFS) =================
+// ================= DASHBOARD ROUTE =================
 app.get("/dashboard", verifyToken, async (req, res) => {
   try {
+
     const salesData = await salesCollection.find().toArray();
+
     const expenses = await expensesCollection.find().toArray();
+
     const staff = await staffCollection.find().toArray();
+
     const products = await productsCollection.find().toArray();
+
     const cashList = await cashListCollection.find().toArray();
 
+    const profits = await profitsCollection.find().toArray();
 
-    // ফিক্স ১: receivablesCollection থেকে ডাটা আনা হচ্ছে (যেহেতু ফ্রন্টএন্ডে /receivables রুট ব্যবহার করেছেন)
     const receivablesData = await receivablesCollection.find().toArray();
 
-
-    // ১. সেলস ক্যালকুলেশন
+    // ================= SALES =================
     let totalSales = 0;
+
     let totalProfit = 0;
+
     salesData.forEach((s) => {
+
       totalSales += Number(s?.revenue || 0);
+
       totalProfit += Number(s?.profit || 0);
+
     });
 
+    // ================= MANUAL PROFITS =================
+    const manualProfit = profits.reduce(
+      (sum, item) => sum + Number(item?.amount || 0),
+      0
+    );
 
-    // ২. সাধারণ খরচ
-    const totalExpenseAmount = expenses.reduce((sum, i) => sum + Number(i?.amount || 0), 0);
+    // FINAL PROFIT
+    totalProfit += manualProfit;
 
+    // ================= EXPENSES =================
+    const totalExpenseAmount = expenses.reduce(
+      (sum, i) => sum + Number(i?.amount || 0),
+      0
+    );
 
-    // ৩. স্টাফ বেতন
-    const totalStaffSalary = staff.reduce((sum, i) => sum + Number(i?.monthlySalary || i?.salary || 0), 0);
+    // ================= STAFF SALARY =================
+    const totalStaffSalary = staff.reduce(
+      (sum, i) =>
+        sum + Number(i?.monthlySalary || i?.salary || 0),
+      0
+    );
 
+    // ================= CASH LIST =================
+    const totalCashFromList = cashList.reduce(
+      (sum, i) => sum + Number(i?.amount || 0),
+      0
+    );
 
-    // ৪. ক্যাশ লিস্ট (অ্যাড ক্যাশ থেকে আসা টাকা)
-    const totalCashFromList = cashList.reduce((sum, i) => sum + Number(i?.amount || 0), 0);
+    // ================= RECEIVABLES =================
+    let totalTransactionPlus = 0;
 
+    let totalTransactionMinus = 0;
 
-    // ৫. ট্রানজেকশন (ধার নেওয়া, ধার দেওয়া, টাকা আদায় ও বাকি)
-    let totalTransactionPlus = 0;   // টাকা আদায় হয়েছে (+)
-    let totalTransactionMinus = 0;  // দোকানে বাকি বা হাওয়ালাদ দেওয়া হয়েছে (-)
-
-
-    // ফিক্স ২: receivablesData লুপ চালিয়ে প্লাস এবং মাইনাস অ্যামাউন্ট আলাদা করা
     receivablesData.forEach((t) => {
+
       const amount = Number(t?.amount || 0);
+
       if (amount > 0) {
-        totalTransactionPlus += amount; // পজিটিভ মানে টাকা দোকানে জমা এসেছে
+
+        totalTransactionPlus += amount;
+
       } else if (amount < 0) {
-        totalTransactionMinus += amount; // নেগেটিভ মানে কাস্টমার বাকি নিয়েছে
+
+        totalTransactionMinus += amount;
+
       }
+
     });
 
+    // ================= CASH IN =================
+    const totalCashCombined =
+      totalSales +
+      totalCashFromList +
+      totalTransactionPlus +
+      manualProfit;
 
-    // 🌟 নিখুঁত হিসাবের সূত্র
-    const totalCashCombined = totalSales + totalCashFromList + totalTransactionPlus;
+    // ================= CASH OUT =================
+    const totalExpenseCombined =
+      totalExpenseAmount +
+      totalStaffSalary +
+      Math.abs(totalTransactionMinus);
 
+    // ================= FINAL CASH =================
+    const netBusinessCash =
+      totalCashCombined - totalExpenseCombined;
 
-    // totalTransactionMinus যেহেতু নেগেটিভ ফিগার, তাই Math.abs দিয়ে পজিটিভ করে খরচের সাথে যোগ করা হলো
-    const totalExpenseCombined = totalExpenseAmount + totalStaffSalary + Math.abs(totalTransactionMinus);
-    const netBusinessCash = totalCashCombined - totalExpenseCombined;
+    // ================= STOCK =================
+    const totalStock = products.reduce(
+      (sum, i) => sum + Number(i?.stock || 0),
+      0
+    );
 
+    const totalStockValue = products.reduce(
+      (sum, i) =>
+        sum +
+        (Number(i?.stock || 0) *
+          Number(i?.buyPrice || 0)),
+      0
+    );
 
-    // ৬. স্টক ভ্যালু
-    const totalStock = products.reduce((sum, i) => sum + Number(i?.stock || 0), 0);
-    const totalStockValue = products.reduce((sum, i) => sum + (Number(i?.stock || 0) * Number(i?.buyPrice || 0)), 0);
-
-
+    // ================= RESPONSE =================
     res.send({
       totalSales,
       totalProfit,
+      manualProfit,
       totalExpenseAmount,
       totalStaffSalary,
       totalCashFromList,
@@ -1040,11 +1088,18 @@ app.get("/dashboard", verifyToken, async (req, res) => {
       totalExpenseCombined,
       netBusinessCash,
       totalStock,
-      totalStockValue
+      totalStockValue,
     });
+
   } catch (error) {
+
     console.log("DASHBOARD ERROR:", error);
-    res.status(500).send({ success: false, message: error.message });
+
+    res.status(500).send({
+      success: false,
+      message: error.message,
+    });
+
   }
 });
 
