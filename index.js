@@ -5,11 +5,14 @@ const jwt = require("jsonwebtoken");
 const rateLimit = require("express-rate-limit");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
+
 const app = express();
 const port = process.env.PORT || 5000;
 
+
 // ================= SAFE NUMBER =================
 const safe = (v) => (isNaN(Number(v)) ? 0 : Number(v));
+
 
 // ================= VALID OBJECT ID =================
 const validateId = (req, res, next) => {
@@ -18,6 +21,7 @@ const validateId = (req, res, next) => {
   }
   next();
 };
+
 
 // ================= MIDDLEWARE & CORS FIXED =================
 const corsOptions = {
@@ -31,12 +35,14 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(express.json());
 
+
 // ================= RATE LIMIT =================
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 500,
 });
 app.use(limiter);
+
 
 // ================= MONGODB CONFIG =================
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.rd6jhgv.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0`;
@@ -47,6 +53,7 @@ const client = new MongoClient(uri, {
     deprecationErrors: true,
   },
 });
+
 
 // Global DB and Collections variables
 let db = null;
@@ -61,6 +68,7 @@ let staffCollection;
 let profitsCollection;
 let reportsCollection;
 let cartsCollection;
+
 
 // ================= VERCEL SERVERLESS DB CONNECTION MIDDLEWARE =================
 app.use(async (req, res, next) => {
@@ -88,6 +96,7 @@ app.use(async (req, res, next) => {
   }
 });
 
+
 // ================= VERIFY TOKEN MIDDLEWARE =================
 const verifyToken = (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -104,6 +113,7 @@ const verifyToken = (req, res, next) => {
   });
 };
 
+
 // ================= VERIFY ADMIN MIDDLEWARE =================
 const verifyAdmin = async (req, res, next) => {
   try {
@@ -118,10 +128,12 @@ const verifyAdmin = async (req, res, next) => {
   }
 };
 
+
 // ================= BASE ROUTE =================
 app.get("/", (req, res) => {
   res.send({ success: true, message: "Shop Jewellers Server Running" });
 });
+
 
 // ================= JWT ROUTE =================
 app.post("/jwt", async (req, res) => {
@@ -140,6 +152,7 @@ app.post("/jwt", async (req, res) => {
   }
 });
 
+
 // ================= USERS API =================
 app.post("/users", async (req, res) => {
   try {
@@ -147,10 +160,17 @@ app.post("/users", async (req, res) => {
     if (!user?.email) {
       return res.status(400).send({ success: false, message: "Email Required" });
     }
+
+
+    // ইমেইল দিয়ে ডাটাবেজে অলরেডি ইউজার আছে কিনা চেক করা
     const existingUser = await usersCollection.findOne({ email: user.email });
     if (existingUser) {
+      // ইউজার অলরেডি থাকলে সাকসেস ট্রু সহ রেসপন্স পাঠানো, যাতে ফ্রন্টএন্ডে এরর না দেয়
       return res.send({ success: true, message: "User already exists", insertedId: existingUser._id });
     }
+
+
+    // নতুন ইউজার ডাটা স্ট্রাকচার
     const newUser = {
       name: user.name || "Anonymous",
       email: user.email,
@@ -158,6 +178,8 @@ app.post("/users", async (req, res) => {
       role: user.role || "user",
       createdAt: new Date(),
     };
+
+
     const result = await usersCollection.insertOne(newUser);
     res.send(result);
   } catch (error) {
@@ -165,6 +187,8 @@ app.post("/users", async (req, res) => {
   }
 });
 
+
+// 🔓 GET: verifyAdmin সরানো হয়েছে যেন স্টাফরা ইউজার তালিকা দেখতে পারে (প্রয়োজন সাপেক্ষে)
 app.get("/users", verifyToken, async (req, res) => {
   try {
     const result = await usersCollection.find().toArray();
@@ -173,6 +197,7 @@ app.get("/users", verifyToken, async (req, res) => {
     res.status(500).send({ success: false, message: error.message });
   }
 });
+
 
 app.get("/users/admin/:email", verifyToken, async (req, res) => {
   try {
@@ -187,6 +212,8 @@ app.get("/users/admin/:email", verifyToken, async (req, res) => {
   }
 });
 
+
+// 🔒 PATCH/DELETE: এডমিন লক বহাল আছে
 app.patch("/users/admin/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
     const result = await usersCollection.updateOne(
@@ -199,6 +226,7 @@ app.patch("/users/admin/:id", verifyToken, verifyAdmin, validateId, async (req, 
   }
 });
 
+
 app.delete("/users/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
     const result = await usersCollection.deleteOne({ _id: new ObjectId(req.params.id) });
@@ -207,6 +235,7 @@ app.delete("/users/:id", verifyToken, verifyAdmin, validateId, async (req, res) 
     res.status(500).send({ success: false, message: error.message });
   }
 });
+
 
 // ================= CARTS API =================
 app.get("/carts", verifyToken, async (req, res) => {
@@ -221,6 +250,7 @@ app.get("/carts", verifyToken, async (req, res) => {
   }
 });
 
+
 app.post("/carts", verifyToken, async (req, res) => {
   try {
     if (req.body.email !== req.decoded.email) {
@@ -232,6 +262,7 @@ app.post("/carts", verifyToken, async (req, res) => {
     res.status(500).send({ success: false, message: error.message });
   }
 });
+
 
 app.delete("/carts/:id", verifyToken, validateId, async (req, res) => {
   try {
@@ -250,7 +281,9 @@ app.delete("/carts/:id", verifyToken, validateId, async (req, res) => {
   }
 });
 
+
 // ================= PRODUCTS API =================
+// 🔒 POST: শুধুমাত্র এডমিন প্রোডাক্ট অ্যাড করতে পারবে
 app.post("/products", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const p = req.body;
@@ -275,6 +308,8 @@ app.post("/products", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+
+// 🔓 GET: সবাই প্রোডাক্ট দেখতে পারবে
 app.get("/products", async (req, res) => {
   try {
     const result = await productsCollection.find().sort({ createdAt: -1 }).toArray();
@@ -283,6 +318,7 @@ app.get("/products", async (req, res) => {
     res.status(500).send({ success: false, message: error.message });
   }
 });
+
 
 app.get("/products/:id", validateId, async (req, res) => {
   try {
@@ -296,6 +332,8 @@ app.get("/products/:id", validateId, async (req, res) => {
   }
 });
 
+
+// 🔒 PATCH/DELETE: শুধুমাত্র এডমিন আপডেট/ডিলিট করবে
 app.patch("/products/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
     const existingProduct = await productsCollection.findOne({ _id: new ObjectId(req.params.id) });
@@ -322,6 +360,7 @@ app.patch("/products/:id", verifyToken, verifyAdmin, validateId, async (req, res
   }
 });
 
+
 app.delete("/products/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
     await productsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
@@ -331,7 +370,9 @@ app.delete("/products/:id", verifyToken, verifyAdmin, validateId, async (req, re
   }
 });
 
+
 // ================= SALES API =================
+// 🔒 POST/PATCH/DELETE: শুধুমাত্র এডমিন সেলস এন্ট্রি ও এডিট করবে
 app.post("/sales", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const { productId, quantity, sellPrice } = req.body;
@@ -372,6 +413,8 @@ app.post("/sales", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+
+// 🔓 GET: verifyAdmin সরানো হয়েছে যেন স্টাফরাও সেলস রেকর্ড দেখতে পারে
 app.get("/sales", verifyToken, async (req, res) => {
   try {
     const result = await salesCollection.find().toArray();
@@ -380,6 +423,7 @@ app.get("/sales", verifyToken, async (req, res) => {
     res.status(500).send({ success: false, message: "Sales fetch failed" });
   }
 });
+
 
 app.patch("/sales/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
@@ -410,6 +454,7 @@ app.patch("/sales/:id", verifyToken, verifyAdmin, validateId, async (req, res) =
   }
 });
 
+
 app.delete("/sales/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
     const sale = await salesCollection.findOne({ _id: new ObjectId(req.params.id) });
@@ -431,7 +476,9 @@ app.delete("/sales/:id", verifyToken, verifyAdmin, validateId, async (req, res) 
   }
 });
 
+
 // ================= PROFITS API =================
+// 🔒 POST/PATCH/DELETE: এডমিন অনলি
 app.post("/profits", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const p = req.body;
@@ -443,6 +490,8 @@ app.post("/profits", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+
+// 🔓 GET: verifyAdmin সরানো হয়েছে
 app.get("/profits", verifyToken, async (req, res) => {
   try {
     const result = await profitsCollection.find().sort({ createdAt: -1 }).toArray();
@@ -451,6 +500,7 @@ app.get("/profits", verifyToken, async (req, res) => {
     res.status(500).send({ success: false, message: "Profits fetch failed" });
   }
 });
+
 
 app.patch("/profits/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
@@ -475,6 +525,7 @@ app.patch("/profits/:id", verifyToken, verifyAdmin, validateId, async (req, res)
   }
 });
 
+
 app.delete("/profits/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
     const result = await profitsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
@@ -484,7 +535,9 @@ app.delete("/profits/:id", verifyToken, verifyAdmin, validateId, async (req, res
   }
 });
 
+
 // ================= CASH LIST API =================
+// 🔒 POST/PATCH/DELETE: এডমিন অনলি
 app.post("/cash-list", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const p = req.body;
@@ -503,6 +556,8 @@ app.post("/cash-list", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+
+// 🔓 GET: verifyAdmin সরানো হয়েছে
 app.get("/cash-list", verifyToken, async (req, res) => {
   try {
     const result = await cashListCollection.find().sort({ createdAt: -1 }).toArray();
@@ -511,6 +566,7 @@ app.get("/cash-list", verifyToken, async (req, res) => {
     res.status(500).send({ success: false, message: "Failed to fetch cash list" });
   }
 });
+
 
 app.patch("/cash-list/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
@@ -537,6 +593,7 @@ app.patch("/cash-list/:id", verifyToken, verifyAdmin, validateId, async (req, re
   }
 });
 
+
 app.delete("/cash-list/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
     const result = await cashListCollection.deleteOne({ _id: new ObjectId(req.params.id) });
@@ -546,7 +603,9 @@ app.delete("/cash-list/:id", verifyToken, verifyAdmin, validateId, async (req, r
   }
 });
 
+
 // ================= RECEIVABLE API =================
+// 🔒 POST/PATCH/DELETE: এডমিন অনলি
 app.post("/receivables", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const data = {
@@ -562,6 +621,8 @@ app.post("/receivables", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+
+// 🔓 GET: verifyAdmin সরানো হয়েছে
 app.get("/receivables", verifyToken, async (req, res) => {
   try {
     const result = await receivablesCollection.find().sort({ createdAt: -1 }).toArray();
@@ -570,6 +631,7 @@ app.get("/receivables", verifyToken, async (req, res) => {
     res.status(500).send({ success: false, message: "Receivables fetch failed" });
   }
 });
+
 
 app.patch("/receivables/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
@@ -592,6 +654,7 @@ app.patch("/receivables/:id", verifyToken, verifyAdmin, validateId, async (req, 
   }
 });
 
+
 app.delete("/receivables/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
     const result = await receivablesCollection.deleteOne({ _id: new ObjectId(req.params.id) });
@@ -601,7 +664,9 @@ app.delete("/receivables/:id", verifyToken, verifyAdmin, validateId, async (req,
   }
 });
 
+
 // ================= TRANSACTIONS (HOWLAD) API =================
+// 🔒 POST/PATCH/DELETE: এডমিন অনলি ডাটা অ্যাড বা এডিট করবে
 app.post("/transactions", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const p = req.body;
@@ -620,6 +685,8 @@ app.post("/transactions", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+
+// 🔓 GET: verifyAdmin সরানো হয়েছে (আপনার 403 এররটি এখান থেকেই আসছিল, এখন সমাধান হয়ে যাবে)
 app.get("/transactions", verifyToken, async (req, res) => {
   try {
     const result = await transactionsCollection.find().sort({ createdAt: -1 }).toArray();
@@ -628,6 +695,7 @@ app.get("/transactions", verifyToken, async (req, res) => {
     res.status(500).send({ success: false, message: "Failed to fetch transactions" });
   }
 });
+
 
 app.patch("/transactions/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
@@ -655,6 +723,7 @@ app.patch("/transactions/:id", verifyToken, verifyAdmin, validateId, async (req,
   }
 });
 
+
 app.delete("/transactions/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
     const result = await transactionsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
@@ -664,20 +733,9 @@ app.delete("/transactions/:id", verifyToken, verifyAdmin, validateId, async (req
   }
 });
 
-// ================= STAFF API =================
-// 🔓 নির্দিষ্ট একটি স্টাফের ডাটা আইডি দিয়ে আনার জন্য রাউট (এডিট পেজের জন্য এখন একদম সঠিক জায়গায় আছে)
-app.get("/staffs/:id", verifyToken, validateId, async (req, res) => {
-  try {
-    const result = await staffCollection.findOne({ _id: new ObjectId(req.params.id) });
-    if (!result) {
-      return res.status(404).send({ success: false, message: "Staff member not found" });
-    }
-    res.send(result);
-  } catch (error) {
-    res.status(500).send({ success: false, message: "Staff member fetch failed" });
-  }
-});
 
+// ================= STAFF API =================
+// 🔒 POST/PATCH/DELETE: এডমিন অনলি
 app.post("/staffs", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const staffData = { ...req.body };
@@ -689,6 +747,8 @@ app.post("/staffs", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+
+// 🔓 GET: verifyAdmin সরানো হয়েছে যেন স্টাফ ড্যাশবোর্ডে ডাটা রেন্ডার হতে পারে
 app.get("/staffs", verifyToken, async (req, res) => {
   try {
     const result = await staffCollection.find().toArray();
@@ -697,6 +757,7 @@ app.get("/staffs", verifyToken, async (req, res) => {
     res.status(500).send({ success: false, message: "Staff fetch failed" });
   }
 });
+
 
 app.patch("/staffs/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
@@ -719,6 +780,7 @@ app.patch("/staffs/:id", verifyToken, verifyAdmin, validateId, async (req, res) 
   }
 });
 
+
 app.delete("/staffs/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
     const result = await staffCollection.deleteOne({ _id: new ObjectId(req.params.id) });
@@ -728,7 +790,9 @@ app.delete("/staffs/:id", verifyToken, verifyAdmin, validateId, async (req, res)
   }
 });
 
+
 // ================= EXPENSES API =================
+// 🔒 POST/PATCH/DELETE: এডমিন অনলি
 app.post("/expenses", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const p = req.body;
@@ -745,6 +809,8 @@ app.post("/expenses", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+
+// 🔓 GET: verifyAdmin সরানো হয়েছে
 app.get("/expenses", verifyToken, async (req, res) => {
   try {
     const result = await expensesCollection.find().sort({ createdAt: -1 }).toArray();
@@ -753,6 +819,7 @@ app.get("/expenses", verifyToken, async (req, res) => {
     res.status(500).send({ success: false, message: "Expenses fetch failed" });
   }
 });
+
 
 app.patch("/expenses/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
@@ -778,6 +845,7 @@ app.patch("/expenses/:id", verifyToken, verifyAdmin, validateId, async (req, res
   }
 });
 
+
 app.delete("/expenses/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
     const result = await expensesCollection.deleteOne({ _id: new ObjectId(req.params.id) });
@@ -787,7 +855,9 @@ app.delete("/expenses/:id", verifyToken, verifyAdmin, validateId, async (req, re
   }
 });
 
+
 // ================= ANALYTICS & REPORTS API =================
+// 🔓 GET: রিডিউসড ভেরিফিকেশন (রিপোর্টসগুলো যদি ইউজারদের দেখাতে চান তবে এডমিন তুলে দিতে পারেন, আপাতত এডমিন রাখা হলো কারণ এটি চার্টের মূল অ্যানালিটিক্স)
 app.get("/admin-stats", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const salesColl = req.collections?.salesCollection || salesCollection;
@@ -800,6 +870,7 @@ app.get("/admin-stats", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+
 app.get("/report/monthly", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const reportsColl = req.collections?.reportsCollection || reportsCollection;
@@ -810,14 +881,19 @@ app.get("/report/monthly", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+
 app.post("/report/monthly/save", verifyToken, verifyAdmin, async (req, res) => {
   try {
     const salesColl = req.collections?.salesCollection || salesCollection;
     const expensesColl = req.collections?.expensesCollection || expensesCollection;
     const reportsColl = req.collections?.reportsCollection || reportsCollection;
+
+
     const sales = await salesColl.find().toArray();
     const expenses = await expensesColl.find().toArray();
     const monthly = {};
+
+
     sales.forEach((s) => {
       const dateObj = s.createdAt ? new Date(s.createdAt) : new Date();
       const month = dateObj.toLocaleString("default", { month: "long" });
@@ -826,6 +902,8 @@ app.post("/report/monthly/save", verifyToken, verifyAdmin, async (req, res) => {
       }
       monthly[month].revenue += safe(s.revenue || (s.sellPrice * s.quantity));
     });
+
+
     expenses.forEach((e) => {
       const dateObj = e.createdAt ? new Date(e.createdAt) : new Date();
       const month = dateObj.toLocaleString("default", { month: "long" });
@@ -834,6 +912,8 @@ app.post("/report/monthly/save", verifyToken, verifyAdmin, async (req, res) => {
       }
       monthly[month].expense += safe(e.amount);
     });
+
+
     const finalData = Object.values(monthly);
     await reportsColl.deleteMany({});
     if (finalData.length > 0) {
@@ -846,6 +926,8 @@ app.post("/report/monthly/save", verifyToken, verifyAdmin, async (req, res) => {
   }
 });
 
+
+// 🔓 GET: ক্যাশ টোটাল এপিআই থেকে verifyAdmin সরানো হয়েছে
 app.get("/cash-total", verifyToken, async (req, res) => {
   try {
     const cashColl = req.collections?.cashListCollection || cashListCollection;
@@ -857,7 +939,8 @@ app.get("/cash-total", verifyToken, async (req, res) => {
   }
 });
 
-// ================= DASHBOARD ROUTE =================
+
+// ================= DASHBOARD ROUTE (🔓 ALREADY OPEN FOR STAFFS) =================
 app.get("/dashboard", verifyToken, async (req, res) => {
   try {
     const salesData = await salesCollection.find().toArray();
@@ -865,8 +948,13 @@ app.get("/dashboard", verifyToken, async (req, res) => {
     const staff = await staffCollection.find().toArray();
     const products = await productsCollection.find().toArray();
     const cashList = await cashListCollection.find().toArray();
+
+
+    // ফিক্স ১: receivablesCollection থেকে ডাটা আনা হচ্ছে (যেহেতু ফ্রন্টএন্ডে /receivables রুট ব্যবহার করেছেন)
     const receivablesData = await receivablesCollection.find().toArray();
 
+
+    // ১. সেলস ক্যালকুলেশন
     let totalSales = 0;
     let totalProfit = 0;
     salesData.forEach((s) => {
@@ -874,47 +962,82 @@ app.get("/dashboard", verifyToken, async (req, res) => {
       totalProfit += Number(s?.profit || 0);
     });
 
+
+    // ২. সাধারণ খরচ
     const totalExpenseAmount = expenses.reduce((sum, i) => sum + Number(i?.amount || 0), 0);
+
+
+    // ৩. স্টাফ বেতন
     const totalStaffSalary = staff.reduce((sum, i) => sum + Number(i?.monthlySalary || i?.salary || 0), 0);
+
+
+    // ৪. ক্যাশ লিস্ট (অ্যাড ক্যাশ থেকে আসা টাকা)
     const totalCashFromList = cashList.reduce((sum, i) => sum + Number(i?.amount || 0), 0);
 
-    let totalTransactionPlus = 0;
-    let totalTransactionMinus = 0;
+
+    // ৫. ট্রানজেকশন (ধার নেওয়া, ধার দেওয়া, টাকা আদায় ও বাকি)
+    let totalTransactionPlus = 0;   // টাকা আদায় হয়েছে (+)
+    let totalTransactionMinus = 0;  // দোকানে বাকি বা হাওয়ালাদ দেওয়া হয়েছে (-)
+
+
+    // ফিক্স ২: receivablesData লুপ চালিয়ে প্লাস এবং মাইনাস অ্যামাউন্ট আলাদা করা
     receivablesData.forEach((t) => {
       const amount = Number(t?.amount || 0);
       if (amount > 0) {
-        totalTransactionPlus += amount;
+        totalTransactionPlus += amount; // পজিটিভ মানে টাকা দোকানে জমা এসেছে
       } else if (amount < 0) {
-        totalTransactionMinus += amount;
+        totalTransactionMinus += amount; // নেগেটিভ মানে কাস্টমার বাকি নিয়েছে
       }
     });
 
+
+    // 🌟 নিখুঁত হিসাবের সূত্র
     const totalCashCombined = totalSales + totalCashFromList + totalTransactionPlus;
 
+
+    // totalTransactionMinus যেহেতু নেগেটিভ ফিগার, তাই Math.abs দিয়ে পজিটিভ করে খরচের সাথে যোগ করা হলো
+    const totalExpenseCombined = totalExpenseAmount + totalStaffSalary + Math.abs(totalTransactionMinus);
+    const netBusinessCash = totalCashCombined - totalExpenseCombined;
+
+
+    // ৬. স্টক ভ্যালু
+    const totalStock = products.reduce((sum, i) => sum + Number(i?.stock || 0), 0);
+    const totalStockValue = products.reduce((sum, i) => sum + (Number(i?.stock || 0) * Number(i?.buyPrice || 0)), 0);
+
+
     res.send({
-      success: true,
-      data: {
-        totalSales,
-        totalProfit,
-        totalExpenseAmount,
-        totalStaffSalary,
-        totalCashFromList,
-        totalTransactionPlus,
-        totalTransactionMinus,
-        totalCashCombined,
-        productsCount: products.length,
-        staffCount: staff.length
-      }
+      totalSales,
+      totalProfit,
+      totalExpenseAmount,
+      totalStaffSalary,
+      totalCashFromList,
+      totalTransactionPlus,
+      totalTransactionMinus,
+      totalCashCombined,
+      totalExpenseCombined,
+      netBusinessCash,
+      totalStock,
+      totalStockValue
     });
   } catch (error) {
+    console.log("DASHBOARD ERROR:", error);
     res.status(500).send({ success: false, message: error.message });
   }
 });
 
-if (process.env.NODE_ENV !== 'production') {
+// Global Error Handler for Vercel Serverless Scope
+app.use((err, req, res, next) => {
+  console.error("🚨 Global Server Error:", err.stack);
+  res.status(500).send({ success: false, message: "Something broke internally!" });
+});
+
+
+// Local listening
+if (process.env.NODE_ENV !== "production") {
   app.listen(port, () => {
-    console.log(`🚀 Server running on port ${port}`);
+    console.log(`🚀 Server is listening dynamically on port ${port}`);
   });
 }
+
 
 module.exports = app;
