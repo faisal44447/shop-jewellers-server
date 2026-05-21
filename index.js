@@ -758,6 +758,30 @@ app.get("/staffs", verifyToken, async (req, res) => {
   }
 });
 
+app.get("/staffs/:id", verifyToken, validateId, async (req, res) => {
+  try {
+    const id = req.params.id;
+
+    const result = await staffCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!result) {
+      return res.status(404).send({
+        success: false,
+        message: "Staff not found",
+      });
+    }
+
+    res.send(result);
+
+  } catch (error) {
+    res.status(500).send({
+      success: false,
+      message: "Failed to fetch single staff",
+    });
+  }
+});
 
 app.patch("/staffs/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
@@ -779,7 +803,6 @@ app.patch("/staffs/:id", verifyToken, verifyAdmin, validateId, async (req, res) 
     res.status(500).send({ success: false, message: error.message });
   }
 });
-
 
 app.delete("/staffs/:id", verifyToken, verifyAdmin, validateId, async (req, res) => {
   try {
